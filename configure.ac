@@ -31,7 +31,7 @@ AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([miner.c])
 AC_CONFIG_HEADERS([config.h])
 
-AM_INIT_AUTOMAKE([foreign])
+AM_INIT_AUTOMAKE([subdir-objects foreign])
 m4_ifdef([AM_SILENT_RULES], [AM_SILENT_RULES([yes])])
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -169,27 +169,6 @@ AC_CHECK_LIB(pthread, pthread_create, [
 ],
         AC_MSG_ERROR([Could not find pthread library - please install libpthread]))
 PTHREAD_LIBS=-lpthread
-
-PKG_CHECK_MODULES([JANSSON],[jansson],[
-	true
-],[
-	AC_MSG_CHECKING([for jansson in system-default locations])
-	LIBS="$LIBS -ljansson"
-	AC_TRY_LINK([
-		#include <jansson.h>
-	],[
-		json_object();
-	],[
-		AC_MSG_RESULT([found])
-		JANSSON_LIBS=-ljansson
-	],[
-		AC_MSG_RESULT([not found])
-		AC_MSG_ERROR([Could not find jansson library])
-	])
-	LIBS="${save_LIBS}"
-])
-AC_SUBST(JANSSON_CFLAGS)
-AC_SUBST(JANSSON_LIBS)
 
 if test "x$opencl" = xyes; then
 	adl="yes"
@@ -421,9 +400,11 @@ LDFLAGS="$save_LDFLAGS"
 AC_SUBST(origin_LDFLAGS)
 
 
+AC_CONFIG_SUBDIRS([libjansson])
 AC_CONFIG_SUBDIRS([libbase58])
 AC_CONFIG_SUBDIRS([libblkmaker])
 
+AM_CONDITIONAL([NEED_LIBJANSSON], [true])
 AM_CONDITIONAL([NEED_LIBBASE58], [true])
 AM_CONDITIONAL([NEED_LIBBLKMAKER], [true])
 AM_CONDITIONAL([NEED_DYNCLOCK], [test x$icarus$modminer$x6500$ztex != xnonono])
@@ -750,9 +731,9 @@ fi
 echo
 echo "Compilation............: make (or gmake)"
 echo "  CPPFLAGS.............:" $CPPFLAGS $NCURSES_CPPFLAGS
-echo "  CFLAGS...............:" $CFLAGS $LIBUSB_CFLAGS $JANSSON_CFLAGS
+echo "  CFLAGS...............:" $CFLAGS $LIBUSB_CFLAGS
 echo "  LDFLAGS..............:" $LDFLAGS $PTHREAD_FLAGS
-echo "  LDADD................:" $LIBS $DLOPEN_FLAGS $LIBCURL_LIBS $JANSSON_LIBS $PTHREAD_LIBS $NCURSES_LIBS $PDCURSES_LIBS $WS2_LIBS $MATH_LIBS $UDEV_LIBS $LIBUSB_LIBS
+echo "  LDADD................:" $LIBS $DLOPEN_FLAGS $LIBCURL_LIBS $PTHREAD_LIBS $NCURSES_LIBS $PDCURSES_LIBS $WS2_LIBS $MATH_LIBS $UDEV_LIBS $LIBUSB_LIBS
 echo
 echo "Installation...........: make install (as root if needed, with 'su' or 'sudo')"
 echo "  prefix...............: $prefix"

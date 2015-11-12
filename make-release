@@ -54,7 +54,6 @@ dlls='
 	pdcurses.dll
 	libcurl-4.dll
 	pthreadGC2.dll
-	libjansson-4.dll
 	libusb-1.0.dll
 	zlib1.dll
 '

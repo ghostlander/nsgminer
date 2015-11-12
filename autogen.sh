@@ -12,12 +12,12 @@ if test -z "$NOSUBMODULES" ; then
 	)
 fi
 
-echo 'Running autoreconf -if...'
+echo 'Running autoreconf -ifv...'
 (
 	cd "${bs_dir}"
 	rm -rf autom4te.cache
 	rm -f aclocal.m4 ltmain.sh
-	autoreconf -if
+	autoreconf -ifv
 )
 
 if test -z "$NOCONFIGURE" ; then

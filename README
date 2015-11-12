@@ -32,7 +32,7 @@ READ EXECUTIVE SUMMARY BELOW FOR FIRST TIME USERS!
 
 Everything you probably want, condensed:
 	build-essential autoconf automake libtool pkg-config libcurl4-gnutls-dev
-	libjansson-dev uthash-dev libncursesw5-dev libudev-dev libusb-1.0-0-dev
+	uthash-dev libncursesw5-dev libudev-dev libusb-1.0-0-dev
 
 Dependencies:
 	autoconf             http://www.gnu.org/software/autoconf/
@@ -42,8 +42,6 @@ Dependencies:
 	...or pkgconf        https://github.com/pkgconf/pkgconf
 
 	libcurl4-gnutls-dev  http://curl.haxx.se/libcurl/
-
-	libjansson-dev 2.0+  http://www.digip.org/jansson/
 
 Optional Dependencies:
 	Text-User-Interface (TUI): curses dev library; any one of:

@@ -32,13 +32,13 @@ bin_PROGRAMS	= bfgminer
 bin_SCRIPTS	= *.cl
 
 bfgminer_LDFLAGS	= $(PTHREAD_FLAGS)
-bfgminer_LDADD	= $(DLOPEN_FLAGS) @LIBCURL_LIBS@ @JANSSON_LIBS@ @PTHREAD_LIBS@ \
+bfgminer_LDADD	= $(DLOPEN_FLAGS) @LIBCURL_LIBS@ @PTHREAD_LIBS@ \
 		  @NCURSES_LIBS@ @PDCURSES_LIBS@ @WS2_LIBS@ \
 		  @UDEV_LIBS@ @LIBUSB_LIBS@ \
 		  @MATH_LIBS@ lib/libgnu.a ccan/libccan.a
 bfgminer_CPPFLAGS = -I$(top_builddir)/lib -I$(top_srcdir)/lib @LIBUSB_CFLAGS@ @LIBCURL_CFLAGS@
 
-bfgminer_CPPFLAGS += @JANSSON_CFLAGS@
+bfgminer_CPPFLAGS +=
 bfgminer_CPPFLAGS += $(NCURSES_CPPFLAGS)
 
 # common sources
@@ -80,6 +80,24 @@ if HAVE_CYGWIN
 EXTRA_bfgminer_DEPENDENCIES += cygbase58-0.dll
 
 cyg%.dll: libbase58/.libs/cyg%.dll
+	cp -p $< $@
+endif
+
+endif
+
+if NEED_LIBJANSSON
+SUBDIRS           += libjansson
+bfgminer_CPPFLAGS += -Ilibjansson
+bfgminer_LDFLAGS  += -Llibjansson/.libs -Wl,-rpath,\$$ORIGIN/libjansson/.libs$(origin_LDFLAGS)
+bfgminer_LDADD    += -ljansson
+EXTRA_bfgminer_DEPENDENCIES += libjansson_directory
+libjansson_directory:
+	cd libjansson && $(MAKE)
+
+if HAVE_CYGWIN
+EXTRA_bfgminer_DEPENDENCIES += cygjansson-4.dll
+
+cyg%.dll: libjansson/.libs/cyg%.dll
 	cp -p $< $@
 endif
 
