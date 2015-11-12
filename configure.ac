@@ -421,8 +421,10 @@ LDFLAGS="$save_LDFLAGS"
 AC_SUBST(origin_LDFLAGS)
 
 
+AC_CONFIG_SUBDIRS([libbase58])
 AC_CONFIG_SUBDIRS([libblkmaker])
 
+AM_CONDITIONAL([NEED_LIBBASE58], [true])
 AM_CONDITIONAL([NEED_LIBBLKMAKER], [true])
 AM_CONDITIONAL([NEED_DYNCLOCK], [test x$icarus$modminer$x6500$ztex != xnonono])
 AM_CONDITIONAL([NEED_FPGAUTILS], [test x$icarus$bitforce$modminer$x6500$ztex != xnonononono])

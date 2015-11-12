@@ -67,6 +67,24 @@ endif
 
 endif
 
+if NEED_LIBBASE58
+SUBDIRS           += libbase58
+bfgminer_CPPFLAGS += -Ilibbase58
+bfgminer_LDFLAGS  += -Llibbase58/.libs -Wl,-rpath,\$$ORIGIN/libbase58/.libs$(origin_LDFLAGS)
+bfgminer_LDADD    += -lbase58
+EXTRA_bfgminer_DEPENDENCIES += libbase58_directory
+libbase58_directory:
+	cd libbase58 && $(MAKE)
+
+if HAVE_CYGWIN
+EXTRA_bfgminer_DEPENDENCIES += cygbase58-0.dll
+
+cyg%.dll: libbase58/.libs/cyg%.dll
+	cp -p $< $@
+endif
+
+endif
+
 bfgminer_SOURCES	+= logging.c
 
 # GPU sources, TODO: make them selectable
