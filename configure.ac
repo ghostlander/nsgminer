@@ -140,16 +140,28 @@ m4_define([BFG_PREPROC_IFELSE],
 )
 
 
+scrypt="yes"
+
+AC_ARG_ENABLE([scrypt],
+	[AC_HELP_STRING([--disable-scrypt],[Build without support for Scrypt (default enabled)])],
+	[scrypt=$enableval]
+	)
+if test "x$scrypt" = xyes; then
+	AC_DEFINE([USE_SCRYPT], [1], [Defined to 1 if Scrypt support is wanted])
+fi
+
+
 cpumining="no"
 
 AC_ARG_ENABLE([cpumining],
-	[AC_HELP_STRING([--enable-cpumining],[Build with CPU mining support (default disabled)])],
+	[AC_HELP_STRING([--enable-cpumining],[Build with support for CPU mining (default disabled)])],
 	[cpumining=$enableval]
 	)
 if test "x$cpumining" = xyes; then
 	AC_DEFINE_UNQUOTED([WANT_CPUMINE], [1], [Enable CPUMINING])
 fi
 AM_CONDITIONAL([HAS_CPUMINE], [test x$cpumining = xyes])
+
 
 opencl="yes"
 
@@ -170,26 +182,23 @@ AC_CHECK_LIB(pthread, pthread_create, [
         AC_MSG_ERROR([Could not find pthread library - please install libpthread]))
 PTHREAD_LIBS=-lpthread
 
-if test "x$opencl" = xyes; then
-	adl="yes"
-	
+adl="yes"
+
 AC_ARG_ENABLE([adl],
-	[AC_HELP_STRING([--disable-adl],[Build without ADL monitoring (default enabled)])],
+	[AC_HELP_STRING([--disable-adl],[Build with no ADL GPU monitoring (default enabled)])],
 	[adl=$enableval]
 	)
-
-	if test x$adl = xyes
-		then
-			AC_DEFINE([HAVE_ADL], [1], [Defined if ADL headers were found])
-		fi
-else
-	adl="no"
+if test "x$adl" = xyes; then
+	adl="$opencl"
+	if test "x$opencl" = xyes; then
+		AC_DEFINE([HAVE_ADL], [1], [Defined if the ADL headers were found])
+	fi
 fi
 
+
 AC_ARG_ENABLE([bitforce],
-	[AC_HELP_STRING([--disable-bitforce],[Compile support for BitForce (default enabled)])],
-	[bitforce=$enableval],
-	[bitforce=yes]
+	[AC_HELP_STRING([--enable-bitforce],[Add support for BitForce FPGAs (default disabled)])],
+	[bitforce=$enableval]
 	)
 if test "x$bitforce" = xyes; then
 	AC_DEFINE([USE_BITFORCE], [1], [Defined to 1 if BitForce support is wanted])
@@ -197,9 +206,8 @@ fi
 AM_CONDITIONAL([HAS_BITFORCE], [test x$bitforce = xyes])
 
 AC_ARG_ENABLE([icarus],
-	[AC_HELP_STRING([--disable-icarus],[Compile support for Icarus (default enabled)])],
-	[icarus=$enableval],
-	[icarus=yes]
+	[AC_HELP_STRING([--enable-icarus],[Add support for Icarus FPGAs (default disabled)])],
+	[icarus=$enableval]
 	)
 if test "x$icarus" = xyes; then
 	AC_DEFINE([USE_ICARUS], [1], [Defined to 1 if Icarus support is wanted])
@@ -207,9 +215,8 @@ fi
 AM_CONDITIONAL([HAS_ICARUS], [test x$icarus = xyes])
 
 AC_ARG_ENABLE([modminer],
-	[AC_HELP_STRING([--disable-modminer],[Compile support for ModMiner (default enabled)])],
-	[modminer=$enableval],
-	[modminer=yes]
+	[AC_HELP_STRING([--enable-modminer],[Add support for ModMiner FPGAs (default disabled)])],
+	[modminer=$enableval]
 	)
 if test "x$modminer" = xyes; then
 	AC_DEFINE([USE_MODMINER], [1], [Defined to 1 if ModMiner support is wanted])
@@ -249,43 +256,34 @@ PKG_CHECK_MODULES([LIBUSB], [libusb-1.0],[
 ])
 
 AC_ARG_ENABLE([x6500],
-	[AC_HELP_STRING([--disable-x6500],[Compile support for X6500 (default if libusb)])],
-	[x6500=$enableval],
-	[x6500=auto]
+	[AC_HELP_STRING([--enable-x6500],[Add support for X6500 FPGAs (default disabled, libusb required if enabled)])],
+	[x6500=$enableval]
 	)
-if test "x$x6500$libusb" = xyesno; then
-	AC_MSG_ERROR([Could not find libusb, required for X6500 support])
-elif test "x$x6500" = xauto; then
+if test "x$x6500" = xyes; then
 	x6500="$libusb"
 	if test "x$libusb" = xno; then
 		AC_MSG_WARN([Could not find libusb, required for X6500 support])
 		x6500warn=yes
+	else
+		AC_DEFINE([USE_X6500], [1], [Defined to 1 if X6500 support is wanted])
 	fi
-fi
-if test "x$x6500" = xyes; then
-	AC_DEFINE([USE_X6500], [1], [Defined to 1 if X6500 support is wanted])
 fi
 AM_CONDITIONAL([HAS_X6500], [test x$x6500 = xyes])
 
 AC_ARG_ENABLE([ztex],
-	[AC_HELP_STRING([--disable-ztex],[Compile support for ZTEX (default if libusb)])],
-	[ztex=$enableval],
-	[ztex=auto]
+	[AC_HELP_STRING([--enable-ztex],[Add support for ZTEX FPGAs (default disabled, libusb required if enabled)])],
+	[ztex=$enableval]
 	)
-if test "x$ztex$libusb" = xyesno; then
-	AC_MSG_ERROR([Could not find libusb, required for ZTEX support])
-elif test "x$ztex" = xauto; then
+if test "x$ztex" = xyes; then
 	ztex="$libusb"
 	if test "x$libusb" = xno; then
 		AC_MSG_WARN([Could not find libusb, required for ZTEX support])
 		ztexwarn=yes
+	else
+		AC_DEFINE([USE_ZTEX], [1], [Defined to 1 if ZTEX support is wanted])
 	fi
 fi
-if test "x$ztex" = xyes; then
-	AC_DEFINE([USE_ZTEX], [1], [Defined to 1 if ZTEX support is wanted])
-fi
 AM_CONDITIONAL([HAS_ZTEX], [test x$ztex = xyes])
-
 
 if test "x$x6500$ztex" = "xnono"; then
 	libusb=no
@@ -298,17 +296,6 @@ if test "x$libusb" = xyes; then
 	CFLAGS="$LIBUSB_CFLAGS $CFLAGS"
 	AC_CHECK_DECLS([libusb_error_name],[true],[true],[#include <libusb.h>])
 	CFLAGS="$save_CFLAGS"
-fi
-
-
-scrypt="no"
-
-AC_ARG_ENABLE([scrypt],
-	[AC_HELP_STRING([--enable-scrypt],[Compile support for scrypt mining (default disabled)])],
-	[scrypt=$enableval]
-	)
-if test "x$scrypt" = xyes; then
-	AC_DEFINE([USE_SCRYPT], [1], [Defined to 1 if scrypt support is wanted])
 fi
 
 
@@ -659,11 +646,11 @@ echo
 echo "Configuration Options Summary:"
 echo
 
-echo "  curses.TUI...........: $cursesmsg"
+echo "  curses TUI...........: $cursesmsg"
 if test "x$scrypt" != xno; then
-	echo "  scrypt...............: Enabled"
+	echo "  Scrypt...............: Enabled"
 else
-	echo "  scrypt...............: Disabled"
+	echo "  Scrypt...............: Disabled"
 fi
 
 echo
@@ -675,55 +662,57 @@ else
 fi
 
 if test "x$adl" = xyes; then
-	echo "    ADL.monitoring.....: Enabled"
+	echo "    ADL monitoring.....: Enabled"
 elif test "x$opencl" = xyes; then
-	echo "    ADL.monitoring.....: Disabled"
+	echo "    ADL monitoring.....: Disabled"
 else
-	echo "    ADL.monitoring.....: n/a"
+	echo "    ADL monitoring.....: n/a"
 fi
 
+echo
+
 if test "x$bitforce" = xyes; then
-	echo "  BitForce.FPGAs.......: Enabled"
+	echo "  BitForce FPGAs.......: Enabled"
 else
-	echo "  BitForce.FPGAs.......: Disabled"
+	echo "  BitForce FPGAs.......: Disabled"
 fi
 
 if test "x$icarus" = xyes; then
-	echo "  Icarus.FPGAs.........: Enabled"
+	echo "  Icarus FPGAs.........: Enabled"
 else
-	echo "  Icarus.FPGAs.........: Disabled"
+	echo "  Icarus FPGAs.........: Disabled"
 fi
 
 if test "x$modminer" = xyes; then
-	echo "  ModMiner.FPGAs.......: Enabled"
+	echo "  ModMiner FPGAs.......: Enabled"
 else
-	echo "  ModMiner.FPGAs.......: Disabled"
+	echo "  ModMiner FPGAs.......: Disabled"
 fi
 
 if test "x$x6500" = xyes; then
-	echo "  X6500.FPGAs..........: Enabled"
+	echo "  X6500 FPGAs..........: Enabled"
 elif test "x$ztexwarn" = xyes; then
-	echo "  X6500.FPGAs..........: Disabled (libusb not found)"
+	echo "  X6500 FPGAs..........: Disabled (libusb not found)"
 else
-	echo "  X6500.FPGAs..........: Disabled"
+	echo "  X6500 FPGAs..........: Disabled"
 fi
 
 if test "x$ztex" = xyes; then
-	echo "  ZTEX.FPGAs...........: Enabled"
+	echo "  ZTEX FPGAs...........: Enabled"
 elif test "x$ztexwarn" = xyes; then
-	echo "  ZTEX.FPGAs...........: Disabled (libusb not found)"
+	echo "  ZTEX FPGAs...........: Disabled (libusb not found)"
 else
-	echo "  ZTEX.FPGAs...........: Disabled"
+	echo "  ZTEX FPGAs...........: Disabled"
 fi
 
 if test "x$bitforce$modminer" != xnono; then
-	echo "  libudev.detection....: $libudev"
+	echo "  libudev detection....: $libudev"
 fi
 
 echo
 if test "x$cpumining" = xyes; then
 	echo "  CPU Mining...........: Enabled"
-	echo "  ASM.(for CPU mining).: $has_yasm"
+	echo "  ASM (for CPU mining).: $has_yasm"
 else
 	echo "  CPU Mining...........: Disabled"
 fi

@@ -32,7 +32,7 @@ READ EXECUTIVE SUMMARY BELOW FOR FIRST TIME USERS!
 
 Everything you probably want, condensed:
 	build-essential autoconf automake libtool pkg-config libcurl4-gnutls-dev
-	uthash-dev libncursesw5-dev libudev-dev libusb-1.0-0-dev
+	uthash-dev libncursesw5-dev
 
 Dependencies:
 	autoconf             http://www.gnu.org/software/autoconf/
@@ -64,15 +64,17 @@ Optional Dependencies:
 
 
 BFGMiner specific configuration options:
-	--enable-cpumining      Build with cpu mining support(default disabled)
+	--disable-scrypt        Build without support for Scrypt (default enabled)
+	--enable-cpumining      Build with support for CPU mining (default disabled)
 	--disable-opencl        Build without support for OpenCL (default enabled)
-	--disable-adl           Build without ADL monitoring (default enabled)
-	--disable-bitforce      Compile support for BitForce (default enabled)
-	--disable-icarus        Compile support for Icarus (default enabled)
-	--disable-modminer      Compile support for ModMiner (default enabled)
-	--disable-x6500         Compile support for X6500 (default enabled)
-	--disable-ztex          Compile support for ZTEX (default if libusb)
-	--enable-scrypt         Compile support for scrypt mining (default disabled)
+	--disable-adl           Build with no ADL GPU monitoring (default enabled)
+	--enable-bitforce       Add support for BitForce FPGAs (default disabled)
+	--enable-icarus         Add support for Icarus FPGAs (default disabled)
+	--enable-modminer       Add support for ModMiner FPGAs (default disabled)
+	--enable-x6500          Add support for X6500 FPGAs (default disabled,
+	                         libusb required if enabled)
+	--enable-ztex           Add support for ZTEX FPGAs (default disabled,
+	                         libusb required if enabled)
 	--without-curses        Compile support for curses TUI (default enabled)
 	--without-libudev       Autodetect FPGAs using libudev (default enabled)
 
