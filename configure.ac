@@ -4,6 +4,7 @@ dnl * Copyright 2010-2011 Jeff Garzik
 dnl * Copyright 2012 Xiangfu
 dnl * Copyright 2011 Rusty Russell
 dnl * Copyright 2011 Mark Crichton
+dnl * Copyright 2015 John Doering
 dnl *
 dnl * This program is free software; you can redistribute it and/or modify it
 dnl * under the terms of the GNU General Public License as published by the Free
@@ -12,9 +13,9 @@ dnl * any later version.  See COPYING for more details.
 
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
-m4_define([v_maj], [2])
-m4_define([v_min], [10])
-m4_define([v_mic], [14])
+m4_define([v_maj], [0])
+m4_define([v_min], [9])
+m4_define([v_mic], [0])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_ver], [v_maj.v_min.v_mic])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
@@ -23,7 +24,7 @@ m4_define([lt_age], v_min)
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 
-AC_INIT([bfgminer], [v_ver], [luke-jr+bfgminer@utopios.org])
+AC_INIT([nsgminer], [v_ver], [ghostlander@phoenixcoin.org])
 
 AC_PREREQ([2.59c])
 AC_CANONICAL_SYSTEM
@@ -138,6 +139,17 @@ m4_define([BFG_PREPROC_IFELSE],
 		])
 	],[$3],[$4])
 )
+
+
+neoscrypt="yes"
+
+AC_ARG_ENABLE([neoscrypt],
+	[AC_HELP_STRING([--disable-neoscrypt],[Build without support for NeoScrypt (default enabled)])],
+	[scrypt=$enableval]
+	)
+if test "x$neoscrypt" = xyes; then
+	AC_DEFINE([USE_NEOSCRYPT], [1], [Defined to 1 if NeoScrypt support is wanted])
+fi
 
 
 scrypt="yes"
@@ -396,6 +408,7 @@ AM_CONDITIONAL([NEED_LIBBASE58], [true])
 AM_CONDITIONAL([NEED_LIBBLKMAKER], [true])
 AM_CONDITIONAL([NEED_DYNCLOCK], [test x$icarus$modminer$x6500$ztex != xnonono])
 AM_CONDITIONAL([NEED_FPGAUTILS], [test x$icarus$bitforce$modminer$x6500$ztex != xnonononono])
+AM_CONDITIONAL([HAS_NEOSCRYPT], [test x$neoscrypt = xyes])
 AM_CONDITIONAL([HAS_SCRYPT], [test x$scrypt = xyes])
 AM_CONDITIONAL([HAVE_CURSES], [test x$curses = xyes])
 AM_CONDITIONAL([HAVE_CYGWIN], [test x$have_cygwin = xtrue])
@@ -606,14 +619,14 @@ if test "x$prefix" = xNONE; then
 	prefix=/usr/local
 fi
 
-AC_DEFINE_UNQUOTED([CGMINER_PREFIX], ["$prefix/bin"], [Path to bfgminer install])
+AC_DEFINE_UNQUOTED([CGMINER_PREFIX], ["$prefix/bin"], [Installation path])
 
-AC_DEFINE_UNQUOTED([PHATK_KERNNAME], ["phatk121016"], [Filename for phatk kernel])
-AC_DEFINE_UNQUOTED([POCLBM_KERNNAME], ["poclbm121016"], [Filename for poclbm kernel])
-AC_DEFINE_UNQUOTED([DIAKGCN_KERNNAME], ["diakgcn121016"], [Filename for diakgcn kernel])
-AC_DEFINE_UNQUOTED([DIABLO_KERNNAME], ["diablo121016"], [Filename for diablo kernel])
-AC_DEFINE_UNQUOTED([SCRYPT_KERNNAME], ["scrypt121016"], [Filename for scrypt kernel])
-
+AC_DEFINE_UNQUOTED([PHATK_KERNNAME], ["phatk"], [Filename for the phatk kernel])
+AC_DEFINE_UNQUOTED([POCLBM_KERNNAME], ["poclbm"], [Filename for the poclbm kernel])
+AC_DEFINE_UNQUOTED([DIAKGCN_KERNNAME], ["diakgcn"], [Filename for the diakgcn kernel])
+AC_DEFINE_UNQUOTED([DIABLO_KERNNAME], ["diablo"], [Filename for the diablo kernel])
+AC_DEFINE_UNQUOTED([NEOSCRYPT_KERNNAME], ["neoscrypt"], [Filename for the NeoScrypt kernel])
+AC_DEFINE_UNQUOTED([SCRYPT_KERNNAME], ["scrypt"], [Filename for the Scrypt kernel])
 
 AC_SUBST(PTHREAD_FLAGS)
 AC_SUBST(DLOPEN_FLAGS)
@@ -647,6 +660,15 @@ echo "Configuration Options Summary:"
 echo
 
 echo "  curses TUI...........: $cursesmsg"
+
+echo
+
+if test "x$neoscrypt" != xno; then
+	echo "  NeoScrypt............: Enabled"
+else
+	echo "  NeoScrypt............: Disabled"
+fi
+
 if test "x$scrypt" != xno; then
 	echo "  Scrypt...............: Enabled"
 else

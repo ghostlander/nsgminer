@@ -3,6 +3,7 @@
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2012-2013 Andrew Smith
  * Copyright 2010 Jeff Garzik
+ * Copyright 2015 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -60,7 +61,13 @@
 #include "driver-cpu.h"
 #include "driver-opencl.h"
 #include "bench_block.h"
-#include "scrypt.h"
+
+#if (USE_NEOSCRYPT) || (USE_SCRYPT)
+#include "neoscrypt.h"
+#endif
+
+bool opt_neoscrypt = 0;
+bool opt_scrypt    = 0;
 
 #ifdef USE_X6500
 #include "ft232r.h"
@@ -70,10 +77,6 @@
 	#include <errno.h>
 	#include <fcntl.h>
 	#include <sys/wait.h>
-#endif
-
-#ifdef USE_SCRYPT
-#include "scrypt.h"
 #endif
 
 #if defined(USE_BITFORCE) || defined(USE_ICARUS) || defined(USE_MODMINER) || defined(USE_X6500) || defined(USE_ZTEX)
@@ -135,12 +138,7 @@ int nDevs;
 int opt_g_threads = 2;
 int gpu_threads;
 #endif
-#ifdef USE_SCRYPT
-static char detect_algo = 1;
-bool opt_scrypt;
-#else
-static char detect_algo;
-#endif
+
 bool opt_restart = true;
 static bool opt_nogpu;
 
@@ -267,6 +265,7 @@ char *current_fullhash;
 static char datestamp[40];
 static char blocktime[32];
 struct timeval block_timeval;
+ullong current_diff = 0xFFFFFFFFFFFFFFFFULL;
 static char best_share[8] = "0";
 static char block_diff[8];
 uint64_t best_diff = 0;
@@ -299,7 +298,7 @@ static struct stratum_share *stratum_shares = NULL;
 
 char *opt_socks_proxy = NULL;
 
-static const char def_conf[] = "bfgminer.conf";
+static const char def_conf[] = "nsgminer.conf";
 static bool config_loaded;
 static int include_count;
 #define JSON_INCLUDE_CONF "include"
@@ -1219,7 +1218,7 @@ static struct opt_table opt_config_table[] = {
 #endif
 	OPT_WITH_ARG("--intensity|-I",
 		     set_intensity, NULL, NULL,
-		     "Intensity of GPU scanning (d or " _MIN_INTENSITY_STR " -> " _MAX_INTENSITY_STR ", default: d to maintain desktop interactivity)"),
+		     "Intensity of GPU scanning (d or fixed number within range; default: d to maintain desktop interactivity)"),
 #endif
 #if defined(HAVE_OPENCL) || defined(USE_MODMINER) || defined(USE_X6500) || defined(USE_ZTEX)
 	OPT_WITH_ARG("--kernel-path|-K",
@@ -1339,14 +1338,19 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--sched-stop",
 		     set_schedtime, NULL, &schedstop,
 		     "Set a time of day in HH:MM to stop mining (will quit without a start time)"),
-#ifdef USE_SCRYPT
-	OPT_WITHOUT_ARG("--scrypt",
-			opt_set_bool, &opt_scrypt,
-			"Use the scrypt algorithm for mining (non-bitcoin)"),
+#if (USE_NEOSCRYPT)
+    OPT_WITHOUT_ARG("--neoscrypt",
+      opt_set_bool, &opt_neoscrypt,
+      "Use the NeoScrypt algorithm for mining"),
+#endif
+#if (USE_SCRYPT)
+    OPT_WITHOUT_ARG("--scrypt",
+      opt_set_bool, &opt_scrypt,
+      "Use the Scrypt algorithm for mining"),
 #ifdef HAVE_OPENCL
-	OPT_WITH_ARG("--shaders",
-		     set_shaders, NULL, NULL,
-		     "GPU shaders per card for tuning scrypt, comma separated"),
+    OPT_WITH_ARG("--shaders",
+      set_shaders, NULL, NULL,
+      "Specify GPU shaders per card (Scrypt only), comma separated"),
 #endif
 #endif
 	OPT_WITH_ARG("--sharelog",
@@ -1568,7 +1572,7 @@ static void load_default_config(void)
 	} else
 		strcpy(cnfbuf, "");
 	char *dirp = cnfbuf + strlen(cnfbuf);
-	strcpy(dirp, ".bfgminer/");
+	strcpy(dirp, ".nsgminer/");
 	strcat(dirp, def_conf);
 	if (access(cnfbuf, R_OK))
 		// No BFGMiner config, try Cgminer's...
@@ -1771,14 +1775,10 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
 	json_t *res_val = json_object_get(val, "result");
 	json_t *tmp_val;
 	bool ret = false;
+    uint data_size = 80, target_size = 32;
 
-	if (unlikely(detect_algo == 1)) {
-		json_t *tmp = json_object_get(res_val, "algorithm");
-		const char *v = tmp ? json_string_value(tmp) : "";
-		if (strncasecmp(v, "scrypt", 6))
-			detect_algo = 2;
-	}
-	
+    if(!opt_neoscrypt) data_size = 128;
+
 	if (work->tmpl) {
 		const char *err = blktmpl_add_jansson(work->tmpl, res_val, time(NULL));
 		if (err) {
@@ -1871,23 +1871,24 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
 			}
 #endif
 		}
-	}
-	else
-	if (unlikely(!jobj_binary(res_val, "data", work->data, sizeof(work->data), true))) {
-		applog(LOG_ERR, "JSON inval data");
-		return false;
-	}
 
-	if (!jobj_binary(res_val, "midstate", work->midstate, sizeof(work->midstate), false)) {
-		// Calculate it ourselves
-		applog(LOG_DEBUG, "Calculating midstate locally");
-		calc_midstate(work);
-	}
+    } else if(!jobj_binary(res_val, "data", work->data, data_size, true)) {
+        applog(LOG_ERR, "JSON invalid data");
+        return(false);
+    }
 
-	if (unlikely(!jobj_binary(res_val, "target", work->target, sizeof(work->target), true))) {
-		applog(LOG_ERR, "JSON inval target");
-		return false;
-	}
+    if(!opt_neoscrypt) {
+        if(!jobj_binary(res_val, "midstate", work->midstate, sizeof(work->midstate), false)) {
+            applog(LOG_DEBUG, "Calculating midstate locally");
+            calc_midstate(work);
+        }
+    }
+
+    if(!jobj_binary(res_val, "target", work->target, target_size, true)) {
+        applog(LOG_ERR, "JSON invalid target");
+        return(false);
+    }
+
 	if (work->tmpl) {
 		for (size_t i = 0; i < sizeof(work->target) / 2; ++i)
 		{
@@ -2097,7 +2098,7 @@ static void suffix_string(uint64_t val, char *buf, int sigdigits)
 		sprintf(suffix, "M");
 	} else if (val >= kilo) {
 		dval = (double)val / dkilo;
-		sprintf(suffix, "k");
+        sprintf(suffix, "K");
 	} else {
 		dval = val;
 		decimal = false;
@@ -2117,13 +2118,18 @@ static void suffix_string(uint64_t val, char *buf, int sigdigits)
 	}
 }
 
-static float
-utility_to_hashrate(double utility)
-{
-	return utility * 0x4444444;
+static double utility_to_hashrate(double utility) {
+    double modifier;
+
+    if(opt_neoscrypt || opt_scrypt)
+      modifier = 0.000244140625;
+    else
+      modifier = 1.0;
+
+    return(modifier * utility * 0x4444444);
 }
 
-static const char*_unitchar = "kMGTPEZY?";
+static const char *_unitchar = "KMGTPEZY?";
 
 static void
 hashrate_pick_unit(float hashrate, unsigned char*unit)
@@ -2166,7 +2172,7 @@ hashrate_to_bufstr(char*buf, float hashrate, signed char unitin, enum h2bs_fmt f
 		buf[i++] = ' ';
 	case H2B_SHORT:
 		buf[i++] = _unitchar[unit];
-		strcpy(&buf[i], "h/s");
+        strcpy(&buf[i], "H/s");
 	default:
 		break;
 	}
@@ -2224,14 +2230,11 @@ static void get_statline(char *buf, struct cgpu_info *cgpu)
 		cgpu->api->get_statline_before(buf, cgpu);
 	else
 		tailsprintf(buf, "               | ");
-	tailsprintf(buf, "%ds:%s avg:%s u:%s | A:%d R:%d HW:%d U:%.1f/m",
-		opt_log_interval,
-		cHr, aHr,
-		uHr,
-		cgpu->accepted,
-		cgpu->rejected,
-		cgpu->hw_errors,
-		cgpu->utility);
+
+    tailsprintf(buf, "%ds:%s avg:%s u:%s | A:%d R:%d HW:%d WU:%.1f/m",
+      opt_log_interval, cHr, aHr, uHr,
+      cgpu->accepted, cgpu->rejected, cgpu->hw_errors, cgpu->utility_diff1);
+
 	if (cgpu->api->get_statline)
 		cgpu->api->get_statline(buf, cgpu);
 }
@@ -2253,12 +2256,28 @@ static void curses_print_status(void)
 {
 	struct pool *pool = currentpool;
 	struct timeval now, tv;
-	float efficiency;
 
-	efficiency = total_bytes_xfer ? total_diff_accepted * 2048. / total_bytes_xfer : 0.0;
+    double efficiency = 0.0;
+    if(total_bytes_xfer)
+      efficiency = total_diff_accepted * 2048.0 / (double)total_bytes_xfer;
 
-	wattron(statuswin, A_BOLD);
-	mvwprintw(statuswin, 0, 0, " " PACKAGE " version " VERSION " - Started: %s", datestamp);
+    char *display_algo;
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt)
+      display_algo = "NeoScrypt";
+    else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt)
+      display_algo = "Scrypt";
+    else
+#endif
+      display_algo = "SHA-256d";
+
+    wattron(statuswin, A_BOLD);
+    mvwprintw(statuswin, 0, 0, " "PACKAGE" v"VERSION" - %s : %s",
+      display_algo, datestamp);
+
 	if (!gettimeofday(&now, NULL))
 	{
 		unsigned int days, hours;
@@ -2296,11 +2315,11 @@ static void curses_print_status(void)
 		mvwprintw(statuswin, 4, 0, " Connected to multiple pools with%s LP",
 			have_longpoll ? "": "out");
 	} else if (pool->has_stratum) {
-		mvwprintw(statuswin, 4, 0, " Connected to %s diff %s with stratum as user %s",
-			pool->sockaddr_url, pool->diff, pool->rpc_user);
+        mvwprintw(statuswin, 4, 0, " Connected to %s diff %s with stratum as %s",
+          pool->sockaddr_url, pool->diff, pool->rpc_user);
 	} else {
-		mvwprintw(statuswin, 4, 0, " Connected to %s diff %s with%s LP as user %s",
-			pool->sockaddr_url, pool->diff, have_longpoll ? "": "out", pool->rpc_user);
+        mvwprintw(statuswin, 4, 0, " Connected to %s diff %s with%s LP as %s",
+          pool->sockaddr_url, pool->diff, have_longpoll ? "": "out", pool->rpc_user);
 	}
 	wclrtoeol(statuswin);
 	mvwprintw(statuswin, 5, 0, " Block: %s  Diff:%s  Started: %s  Best share: %s   ",
@@ -2324,7 +2343,9 @@ static void curses_print_devstatus(int thr_id)
 	static int awidth = 1, rwidth = 1, hwwidth = 1, uwidth = 1;
 	struct cgpu_info *cgpu = thr_info[thr_id].cgpu;
 	char logline[256];
-	char cHr[h2bs_fmt_size[H2B_NOUNIT]], aHr[h2bs_fmt_size[H2B_NOUNIT]], uHr[h2bs_fmt_size[H2B_SHORT]];
+    char cHr[h2bs_fmt_size[H2B_NOUNIT]],
+         aHr[h2bs_fmt_size[H2B_NOUNIT]],
+         uHr[h2bs_fmt_size[H2B_SPACED]];
 	int ypos;
 
 	if (opt_compact)
@@ -2386,13 +2407,13 @@ static void curses_print_devstatus(int thr_id)
 	adj_width(cgpu->rejected, &rwidth);
 	adj_width(cgpu->hw_errors, &hwwidth);
 	adj_width(cgpu->utility, &uwidth);
-	wprintw(statuswin, "/%s/%s | A:%*d R:%*d HW:%*d U:%*.2f/m",
-			aHr,
-			uHr,
-			awidth, cgpu->accepted,
-			rwidth, cgpu->rejected,
-			hwwidth, cgpu->hw_errors,
-		uwidth + 3, cgpu->utility);
+
+    wprintw(statuswin, " %s %s | A:%*d R:%*d HW:%*d U:%*.2f/m",
+      aHr, uHr,
+      awidth, cgpu->accepted,
+      rwidth, cgpu->rejected,
+      hwwidth, cgpu->hw_errors,
+      uwidth + 2, cgpu->utility);
 
 	if (cgpu->api->get_statline) {
 		logline[0] = '\0';
@@ -2525,15 +2546,6 @@ void clear_logwin(void)
 	}
 }
 #endif
-
-/* Returns true if the regenerated work->hash solves a block */
-static bool solves_block(const struct work *work)
-{
-	unsigned char target[32];
-
-	real_block_target(target, work->data);
-	return hash_target_check(work->hash, target);
-}
 
 static void enable_pool(struct pool *pool)
 {
@@ -2700,26 +2712,6 @@ share_result(json_t *val, json_t *res, json_t *err, const struct work *work,
 	}
 }
 
-static const uint64_t diffone = 0xFFFF000000000000ull;
-
-static double target_diff(const unsigned char *target);
-
-static uint64_t share_diff(const struct work *work)
-{
-	uint64_t ret;
-
-	ret = target_diff(work->hash);
-	mutex_lock(&control_lock);
-	if (ret > best_diff) {
-		best_diff = ret;
-		suffix_string(best_diff, best_share, 0);
-	}
-	if (ret > work->pool->best_diff)
-		work->pool->best_diff = ret;
-	mutex_unlock(&control_lock);
-	return ret;
-}
-
 static char *submit_upstream_work_request(struct work *work)
 {
 	char *hexstr = NULL;
@@ -2757,6 +2749,8 @@ static char *submit_upstream_work_request(struct work *work)
 	return s;
 }
 
+static double share_diff(const struct work *work);
+
 static bool submit_upstream_work_completed(struct work *work, bool resubmit, struct timeval *ptv_submit, json_t *val) {
 	json_t *res, *err;
 	bool rc = false;
@@ -2764,8 +2758,9 @@ static bool submit_upstream_work_completed(struct work *work, bool resubmit, str
 	struct cgpu_info *cgpu = thr_info[thr_id].cgpu;
 	struct pool *pool = work->pool;
 	struct timeval tv_submit_reply;
-	char hashshow[64 + 4] = "";
 	char worktime[200] = "";
+
+    char hashshow[100];
 
 	gettimeofday(&tv_submit_reply, NULL);
 
@@ -2783,24 +2778,14 @@ static bool submit_upstream_work_completed(struct work *work, bool resubmit, str
 	res = json_object_get(val, "result");
 	err = json_object_get(val, "error");
 
-	if (!QUIET) {
-		int intdiff = floor(work->work_difficulty);
-		char diffdisp[16], *outhash;
-		char tgtdiffdisp[16];
-		unsigned char rhash[32];
-		uint64_t sharediff;
+    if(!QUIET) {
+        char outhash[17];
+        ullong *shash = (ullong *) &work->hash[24];
+        ullong hashdata = le64toh(shash[0]);
+        _bin2hex((char *) &outhash[0], (uchar *) &hashdata, 8);
 
-		swab256(rhash, work->hash);
-		if (opt_scrypt)
-			outhash = bin2hex(rhash + 2, 4);
-		else
-			outhash = bin2hex(rhash + 4, 4);
-		sharediff = share_diff(work);
-		suffix_string(sharediff, diffdisp, 0);
-		suffix_string(intdiff, tgtdiffdisp, 0);
-		sprintf(hashshow, "%s Diff %s/%s%s", outhash, diffdisp, tgtdiffdisp,
-			work->block? " BLOCK!" : "");
-		free(outhash);
+        sprintf(hashshow, "%sx0 Diff %.3f/%.3f%s", outhash, share_diff(work),
+          work->work_difficulty, work->block ? " BLOCK!" : "");
 
 		if (opt_worktime) {
 			char workclone[20];
@@ -2834,9 +2819,9 @@ static bool submit_upstream_work_completed(struct work *work, bool resubmit, str
 			if (work->work_difficulty < 1)
 				diffplaces = 6;
 
-			sprintf(worktime, " <-%08lx.%08lx M:%c D:%1.*f G:%02d:%02d:%02d:%1.3f %s (%1.3f) W:%1.3f (%1.3f) S:%1.3f R:%02d:%02d:%02d",
-				(unsigned long)swab32(*(uint32_t *)&(work->data[opt_scrypt ? 32 : 28])),
-				(unsigned long)swab32(*(uint32_t *)&(work->data[opt_scrypt ? 28 : 24])),
+            sprintf(worktime, " <-%08llx.%08llx M:%c D:%1.*f G:%02d:%02d:%02d:%1.3f %s (%1.3f) W:%1.3f (%1.3f) S:%1.3f R:%02d:%02d:%02d",
+              (ullong)swab32(*(uint32_t *) &(work->data[(opt_neoscrypt || opt_scrypt) ? 32 : 28])),
+              (ullong)swab32(*(uint32_t *) &(work->data[(opt_neoscrypt || opt_scrypt) ? 28 : 24])),
 				work->getwork_mode, diffplaces, work->work_difficulty,
 				tm_getwork.tm_hour, tm_getwork.tm_min,
 				tm_getwork.tm_sec, getwork_time, workclone,
@@ -2937,17 +2922,74 @@ have_pool:
 	return pool;
 }
 
-static double DIFFEXACTONE = 26959946667150639794667015087019630673637144422540572481103610249215.0;
+/* The min. difficulty for NeoScrypt and Scrypt shall correspond to
+ * the base target ~uint256(0) >> 20 and nBits 0x0FFFF01E, that's precisely
+ * FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00000x0
+ * or decompressed from nBits to 30 bytes long with 0FFFF0 prefix:
+ * 0000000000000000000000000000000000000000000000000000000FFFF00000x0 */
 
-static double target_diff(const unsigned char *target)
-{
-	double targ = 0;
-	signed int i;
+static const double BASE_TARGET_FP = 110427941548649020598956093796432407239217743554726184882600387580788736.0;
+static const double BASE_TARGET_SHA256D_FP = 26959946667150639794667015087019630673637144422540572481103610249216.0;
 
-	for (i = 31; i >= 0; --i)
-		targ = (targ * 0x100) + target[i];
+/* Divides the base target by the current target and
+ * reports the result as a 64-bit floating point value */
+static double target_diff(const uchar *target) {
+    ullong *pt64 = (ullong *) &target[0];
+    double dfp64 = 0.0;
 
-	return DIFFEXACTONE / (targ ?: 1);
+    /* Little endian straight ordered target */
+    if(opt_neoscrypt || opt_scrypt) {
+        dfp64  = le64toh(pt64[3]) * 6277101735386680763835789423207666416102355444464034512896.0;
+        dfp64 += le64toh(pt64[2]) * 340282366920938463463374607431768211456.0;
+        dfp64 += le64toh(pt64[1]) * 18446744073709551616.0;
+        dfp64 += le64toh(pt64[0]);
+        return(BASE_TARGET_FP / (dfp64 ? dfp64 : 1.0));
+    }
+
+    int i;
+    for(i = 31, dfp64 = 0.0; i >= 0; i--) {
+        dfp64 *= 256;
+        dfp64 += target[i];
+    }
+    return(BASE_TARGET_SHA256D_FP / (dfp64 ? dfp64 : 1.0));
+}
+
+static const ullong BASE_TARGET = 0x0FFFFFFFFFFFFFFFULL;
+
+/* Divides the base target by the current target and
+ * reports the result as a 64-bit unsigned integer value */
+static ullong target_diff_int(const uchar *target) {
+    ullong d64;
+
+    /* Little endian straight ordered target;
+     * 2 most significant bytes discarded are supposed to be zero */
+    if(opt_neoscrypt || opt_scrypt) {
+        d64 = le64toh(*((ullong *) (target + 22)));
+        return(BASE_TARGET / (d64 ? d64 : 1));
+     }
+
+    /* SHA-256d is floating point only */
+    d64 = (ullong)target_diff(target);
+
+    return(d64);
+}
+
+/* Calculates a nominal share difficulty using its hash */ 
+static double share_diff(const struct work *work) {
+    double dfp64 = target_diff(work->hash);
+
+    /* Update the best share */
+    mutex_lock(&control_lock);
+    if((ullong)dfp64 > best_diff) {
+        best_diff = (ullong)dfp64;
+        suffix_string(best_diff, best_share, 0);
+        applog(LOG_INFO, "The new best share: %s", best_share);
+    }
+    if((ullong)dfp64 > work->pool->best_diff)
+      work->pool->best_diff = (ullong)dfp64;
+    mutex_unlock(&control_lock);
+
+    return(dfp64);
 }
 
 /*
@@ -2958,10 +3000,11 @@ static void calc_diff(struct work *work, int known)
 	struct cgminer_pool_stats *pool_stats = &(work->pool->cgminer_pool_stats);
 	double difficulty;
 
-	if (!known) {
-		work->work_difficulty = target_diff(work->target);
-	} else
-		work->work_difficulty = known;
+    if(!known)
+      work->work_difficulty = target_diff(work->target);
+    else
+      work->work_difficulty = known;
+
 	difficulty = work->work_difficulty;
 
 	pool_stats->last_diff = difficulty;
@@ -3410,26 +3453,37 @@ static inline bool can_roll(struct work *work)
 		work->rolls < 7000 && !stale_work(work, false));
 }
 
-static void roll_work(struct work *work)
-{
-	if (work->tmpl) {
-		if (blkmk_get_data(work->tmpl, work->data, 80, time(NULL), NULL, &work->dataid) < 76)
-			applog(LOG_ERR, "Failed to get next data from template; spinning wheels!");
-		swap32yes(work->data, work->data, 80 / 4);
-		calc_midstate(work);
-		applog(LOG_DEBUG, "Successfully rolled extranonce to dataid %u", work->dataid);
-	} else {
+static void roll_work(struct work *work) {
 
-	uint32_t *work_ntime;
-	uint32_t ntime;
+    if(work->tmpl) {
 
-	work_ntime = (uint32_t *)(work->data + 68);
-	ntime = be32toh(*work_ntime);
-	ntime++;
-	*work_ntime = htobe32(ntime);
+        if(blkmk_get_data(work->tmpl, work->data, 80, time(NULL), NULL, &work->dataid) < 76)
+          applog(LOG_ERR, "Failed to get next data from template; spinning wheels!");
+        swap32yes(work->data, work->data, 80 / 4);
+        if(!opt_neoscrypt) calc_midstate(work);
+        applog(LOG_DEBUG, "Successfully rolled extranonce to dataid %u", work->dataid);
 
-		applog(LOG_DEBUG, "Successfully rolled time header in work");
-	}
+    } else {
+
+        /* Stratum */
+
+        uint *work_ntime;
+        uint ntime;
+
+        work_ntime = (uint *)(work->data + 68);
+
+        if(opt_neoscrypt) {
+            ntime = le32toh(*work_ntime);
+            ntime++;
+            *work_ntime = htole32(ntime);
+        } else {
+            ntime = be32toh(*work_ntime);
+            ntime++;
+            *work_ntime = htobe32(ntime);
+        }
+
+        applog(LOG_DEBUG, "Successfully rolled time header in work");
+    }
 
 	local_work++;
 	work->rolls++;
@@ -3633,27 +3687,6 @@ static bool stale_work(struct work *work, bool share)
 	return false;
 }
 
-static void regen_hash(struct work *work)
-{
-	hash_data(work->hash, work->data);
-}
-
-static void check_solve(struct work *work)
-{
-	if (opt_scrypt)
-		scrypt_outputhash(work);
-	else
-		regen_hash(work);
-
-	work->block = solves_block(work);
-	if (unlikely(work->block)) {
-		work->pool->solved++;
-		found_blocks++;
-		work->mandatory = true;
-		applog(LOG_NOTICE, "Found block for pool %d!", work->pool->pool_no);
-	}
-}
-
 static void submit_discard_share2(const char *reason, struct work *work)
 {
 	sharelog(reason, work);
@@ -3697,6 +3730,29 @@ static void sws_has_ce(struct submit_work_state *sws)
 	json_rpc_call_async(sws->ce->curl, pool->rpc_url, pool->rpc_userpass, sws->s, false, pool, true, sws);
 }
 
+/* Expands difficulty bits of a block header to a 32-byte target;
+/* [0:22] = mantissa, [23] = sign, [24:31] = exponent */
+static void nbits_to_target(uchar *target, uint nbits) {
+    uchar *pnbits = (uchar *) &nbits;
+    uchar shift = pnbits[3];
+
+    /* Disregard the sign if any */
+    nbits &= 0xFF7FFFFF;
+
+    memset(target, 0x00, 32);
+
+    /* Out of bounds target */
+    if((shift < 0x03) || (shift > 0x20)) {
+        applog(LOG_NOTICE, "Invalid (out of bounds) block target 0x%08X", nbits);
+        return;
+    }
+
+    shift -= 3;
+    target[shift]     = pnbits[0];
+    target[shift + 1] = pnbits[1];
+    target[shift + 2] = pnbits[2];
+}
+
 static struct submit_work_state *begin_submission(struct work *work)
 {
 	struct pool *pool;
@@ -3714,7 +3770,25 @@ static struct submit_work_state *begin_submission(struct work *work)
 		goto out;
 	}
 
-	check_solve(work);
+    /* Check if it solves a block */
+
+    uchar target[32];
+    uint nbits;
+
+    if(opt_neoscrypt)
+      nbits = le32toh(*((uint *) (work->data + 72)));
+    else
+      nbits = be32toh(*((uint *) (work->data + 72)));
+
+    nbits_to_target(target, nbits);
+
+    if(target_diff_int(target) <= target_diff_int(work->hash)) {
+        work->block = 1;
+        work->mandatory = 1;
+        work->pool->solved++;
+        found_blocks++;
+        applog(LOG_NOTICE, "Found block for pool %d!", work->pool->pool_no);
+    }
 
 	if (stale_work(work, true)) {
 		work->stale = true;
@@ -3743,7 +3817,11 @@ static struct submit_work_state *begin_submission(struct work *work)
 		HASH_ADD_INT(stratum_shares, id, sshare);
 		mutex_unlock(&sshare_lock);
 
-		nonce = *((uint32_t *)(work->data + 76));
+        if(opt_neoscrypt)
+          nonce = htobe32(*((uint32_t *)(work->data + 76)));
+        else
+          nonce = *((uint32_t *)(work->data + 76));
+
 		noncehex = bin2hex((const unsigned char *)&nonce, 4);
 		s = malloc(1024);
 		sprintf(s, "{\"params\": [\"%s\", \"%s\", \"%s\", \"%s\", \"%s\"], \"id\": %d, \"method\": \"mining.submit\"}",
@@ -4386,15 +4464,27 @@ static int block_sort(struct block *blocka, struct block *blockb)
 	return blocka->block_no - blockb->block_no;
 }
 
-static void set_blockdiff(const struct work *work)
-{
-	unsigned char target[32];
-	uint64_t diff64;
+/* Sets block difficulty according to target extracted and decompressed */
+static void set_block_diff(const struct work *work) {
+    uchar target[32];
+    uint nbits;
+    ullong d64;
 
-	real_block_target(target, work->data);
-	diff64 = target_diff(target);
+    if(opt_neoscrypt)
+      nbits = le32toh(*((uint *) (work->data + 72)));
+    else
+      nbits = be32toh(*((uint *) (work->data + 72)));
 
-	suffix_string(diff64, block_diff, 0);
+    nbits_to_target(target, nbits);
+
+    d64 = target_diff_int(target);
+
+    suffix_string(d64, block_diff, 0);
+
+    if(d64 != current_diff) {
+        current_diff = d64;
+        applog(LOG_NOTICE, "The network difficulty has been set to %llu", d64);
+    }
 }
 
 static bool test_work_current(struct work *work)
@@ -4437,7 +4527,7 @@ static bool test_work_current(struct work *work)
 			free(oldblock);
 		}
 		HASH_ADD_STR(blocks, hash, s);
-		set_blockdiff(work);
+            set_block_diff(work);
 		wr_unlock(&blk_lock);
 		work->pool->block_id = block_id;
 		if (deleted_block)
@@ -4610,8 +4700,8 @@ static void display_pool_summary(struct pool *pool)
 		wlog(" Share submissions: %d\n", pool->accepted + pool->rejected);
 		wlog(" Accepted shares: %d\n", pool->accepted);
 		wlog(" Rejected shares: %d\n", pool->rejected);
-		wlog(" Accepted difficulty shares: %1.f\n", pool->diff_accepted);
-		wlog(" Rejected difficulty shares: %1.f\n", pool->diff_rejected);
+        wlog(" Accepted diff1 shares: %1.f\n", pool->diff_accepted);
+        wlog(" Rejected diff1 shares: %1.f\n", pool->diff_rejected);
 		if (pool->accepted || pool->rejected)
 			wlog(" Reject ratio: %.1f%%\n", (double)(pool->rejected * 100) / (double)(pool->accepted + pool->rejected));
 		uint64_t pool_bytes_xfer = pool->cgminer_pool_stats.net_bytes_received + pool->cgminer_pool_stats.net_bytes_sent;
@@ -4755,9 +4845,12 @@ void write_config(FILE *fcfg)
 				case KL_DIABLO:
 					fprintf(fcfg, "diablo");
 					break;
-				case KL_SCRYPT:
-					fprintf(fcfg, "scrypt");
-					break;
+                case(KL_NEOSCRYPT):
+                    fprintf(fcfg, "neoscrypt");
+                    break;
+                case(KL_SCRYPT):
+                    fprintf(fcfg, "scrypt");
+                    break;
 			}
 		}
 #ifdef USE_SCRYPT
@@ -5321,7 +5414,7 @@ void default_save_file(char *filename)
 	}
 	else
 		strcpy(filename, "");
-	strcat(filename, ".bfgminer/");
+	strcat(filename, ".nsgminer/");
 	mkdir(filename, 0777);
 #else
 	strcpy(filename, "");
@@ -5339,11 +5432,12 @@ static void set_options(void)
 	immedok(logwin, true);
 	clear_logwin();
 retry:
-	wlogprint("\n[L]ongpoll: %s\n", want_longpoll ? "On" : "Off");
-	wlogprint("[Q]ueue: %d\n[S]cantime: %d\n[E]xpiry: %d\n[R]etries: %d\n"
-		  "[W]rite config file\n[B]FGMiner restart\n",
-		opt_queue, opt_scantime, opt_expiry, opt_retries);
-	wlogprint("Select an option or any other key to return\n");
+    wlogprint("\n[L]ong polling: %s\n", want_longpoll ? "On" : "Off");
+    wlogprint("[Q]ueue: %d\n[S]can time: %d\n[E]xpiry: %d\n[R]etries: %d\n"
+      "[W]rite config file\n[M]iner restart\n",
+      opt_queue, opt_scantime, opt_expiry, opt_retries);
+    wlogprint("Select an option or press any other key to return\n");
+
 	input = getch();
 
 	if (!strncasecmp(&input, "q", 1)) {
@@ -5359,7 +5453,7 @@ retry:
 			stop_longpoll();
 		else
 			start_longpoll();
-		applog(LOG_WARNING, "Longpoll %s", want_longpoll ? "enabled" : "disabled");
+        applog(LOG_WARNING, "Long polling %s", want_longpoll ? "enabled" : "disabled");
 		goto retry;
 	} else if  (!strncasecmp(&input, "s", 1)) {
 		selected = curses_int("Set scantime in seconds");
@@ -5415,15 +5509,11 @@ retry:
 		fclose(fcfg);
 		goto retry;
 
-	} else if (!strncasecmp(&input, "b", 1)) {
-		wlogprint("Are you sure?\n");
-		input = getch();
-		if (!strncasecmp(&input, "y", 1))
-			app_restart();
-		else
-			clear_logwin();
-	} else
-		clear_logwin();
+    } else if(!strncasecmp(&input, "m", 1)) {
+        app_restart();
+    } else {
+        clear_logwin();
+    }
 
 	immedok(logwin, false);
 	opt_loginput = false;
@@ -5498,7 +5588,7 @@ static void *api_thread(void *userdata)
 
 	api(api_thr_id);
 
-	PTH(mythr) = 0L;
+    mythr->has_pth = false;
 
 	return NULL;
 }
@@ -5544,8 +5634,8 @@ static void hashmeter(int thr_id, struct timeval *diff,
 		double thread_rolling = 0.0;
 		int i;
 
-		applog(LOG_DEBUG, "[thread %d: %"PRIu64" hashes, %.1f khash/sec]",
-			thr_id, hashes_done, hashes_done / 1000 / secs);
+        applog(LOG_DEBUG, "[thread %d: %llu hashes, %.2f KH/s]",
+          thr_id, (ullong)hashes_done, hashes_done / 1000 / secs);
 
 		/* Rolling average for each thread and each device */
 		decay_time(&thr->rolling, local_mhashes / secs);
@@ -5601,8 +5691,6 @@ static void hashmeter(int thr_id, struct timeval *diff,
 	total_secs = (double)total_diff.tv_sec +
 		((double)total_diff.tv_usec / 1000000.0);
 
-	utility = total_accepted / total_secs * 60;
-
 	ti_hashrate_bufstr(
 		(char*[]){cHr, aHr, uHr},
 		1e6*rolling,
@@ -5610,15 +5698,10 @@ static void hashmeter(int thr_id, struct timeval *diff,
 		utility_to_hashrate(total_diff_accepted / (total_secs ?: 1) * 60),
 		H2B_SPACED);
 
-	sprintf(statusline, "%s%ds:%s avg:%s u:%s | A:%d R:%d S:%d HW:%d U:%.1f/m",
-		want_per_device_stats ? "ALL " : "",
-		opt_log_interval,
-		cHr, aHr,
-		uHr,
-		total_accepted, total_rejected, total_stale,
-		hw_errors,
-		utility);
-
+    sprintf(statusline, "%s%ds:%s avg:%s u:%s | A:%d R:%d S:%d HW:%d WU:%.2f/m",
+      want_per_device_stats ? "ALL " : "", opt_log_interval, cHr, aHr, uHr,
+      (uint)total_diff_accepted, (uint)total_diff_rejected, (uint)total_diff_stale,
+      hw_errors, total_diff1 / total_secs * 60);
 
 	local_mhashes_done = 0;
 out_unlock:
@@ -5633,23 +5716,18 @@ out_unlock:
 }
 
 static void stratum_share_result(json_t *val, json_t *res_val, json_t *err_val,
-				 struct stratum_share *sshare)
-{
-	struct work *work = sshare->work;
-	uint64_t sharediff = share_diff(work);
-	char hashshow[65];
-	uint32_t *hash32;
-	char diffdisp[16];
-	char tgtdiffdisp[16];
-	int intdiff;
+  struct stratum_share *sshare) {
+    struct work *work = sshare->work;
+    char hashshow[100], outhash[17];
+    ullong *shash = (ullong *) &work->hash[24];
+    ullong hashdata = le64toh(shash[0]);
 
-	hash32 = (uint32_t *)(work->hash);
-	intdiff = floor(work->work_difficulty);
-	suffix_string(sharediff, diffdisp, 0);
-	suffix_string(intdiff, tgtdiffdisp, 0);
-	sprintf(hashshow, "%08lx Diff %s/%s%s", (unsigned long)(hash32[6]), diffdisp, tgtdiffdisp,
-		work->block? " BLOCK!" : "");
-	share_result(val, res_val, err_val, work, hashshow, false, "");
+    _bin2hex((char *) &outhash[0], (uchar *) &hashdata, 8);
+
+    sprintf(hashshow, "%sx0 Diff %.3f/%.3f%s", outhash, share_diff(work),
+      work->work_difficulty, work->block ? " BLOCK!" : "");
+
+    share_result(val, res_val, err_val, work, hashshow, false, "");
 }
 
 /* Parses stratum json responses and tries to find the id that the request
@@ -6126,7 +6204,6 @@ retry_stratum:
 		if (!auth_stratum(pool))
 			return false;
 		init_stratum_thread(pool);
-		detect_algo = 2;
 		return true;
 	}
 	else if (pool->has_stratum)
@@ -6337,59 +6414,43 @@ void gen_hash(unsigned char *data, unsigned char *hash, int len)
 	sha2(hash1, 32, hash);
 }
 
-/* Diff 1 is a 256 bit unsigned integer of
- * 0x00000000ffff0000000000000000000000000000000000000000000000000000
- * so we use a big endian 64 bit unsigned integer centred on the 5th byte to
- * cover a huge range of difficulty targets, though not all 256 bits' worth */
-static void set_work_target(struct work *work, double diff)
-{
-	unsigned char target[32];
-	uint64_t *data64, h64;
-	double d64;
+/* Difficulty generator for Stratum */
+static void set_work_target(struct work *work, double diff) {
+    int k;
+    ullong m;
 
-	d64 = diffone;
-	d64 /= diff;
-	d64 = ceil(d64);
-	h64 = d64;
+    if(opt_neoscrypt || opt_scrypt)
+      diff /= 65536.0;
 
-	memset(target, 0, 32);
-	if (d64 < 18446744073709551616.0) {
-		unsigned char rtarget[32];
+    for(k = 6; (k > 0) && (diff > 1.0); k--)
+      diff /= 4294967296.0;
 
-		memset(rtarget, 0, 32);
-		if (opt_scrypt)
-			data64 = (uint64_t *)(rtarget + 2);
-		else
-			data64 = (uint64_t *)(rtarget + 4);
-		*data64 = htobe64(h64);
-		swab256(target, rtarget);
-	} else {
-		/* Support for the classic all FFs just-below-1 diff */
-		if (opt_scrypt)
-			memset(target, 0xff, 30);
-		else
-			memset(target, 0xff, 28);
-	}
+    m = 4294901760.0 / diff;
+    if((m == 0) && (k == 6)) {
+        memset(&work->target[0], 0xFF, 32);
+    } else {
+        memset(&work->target[0], 0x00, 32);
+        ((uint *) work->target)[k] = (uint)m;
+        ((uint *) work->target)[k + 1] = (uint)(m >> 32);
+    }
 
-	if (opt_debug) {
-		char *htarget = bin2hex(target, 32);
+    if(opt_debug) {
+        char htarget[65];
+        _bin2hex(htarget, work->target, 32);
+        applog(LOG_DEBUG, "Generated target %sx0", htarget);
+    }
 
-		applog(LOG_DEBUG, "Generated target %s", htarget);
-		free(htarget);
-	}
-	memcpy(work->target, target, 32);
 }
 
 /* Generates stratum based work based on the most recent notify information
  * from the pool. This will keep generating work while a pool is down so we use
  * other means to detect when the pool has died in stratum_thread */
-static void gen_stratum_work(struct pool *pool, struct work *work)
-{
-	unsigned char *coinbase, merkle_root[32], merkle_sha[64];
-	char *header, *merkle_hash;
-	uint32_t *data32, *swap32;
-	size_t alloc_len;
-	int i;
+static void gen_stratum_work(struct pool *pool, struct work *work) {
+    uchar merkle_root[64], temp_bin[32];
+    uint *data = (uint *) work->data;
+    uchar *coinbase;
+    size_t alloc_len;
+    uint i, t;
 
 	clean_work(work);
 
@@ -6408,35 +6469,58 @@ static void gen_stratum_work(struct pool *pool, struct work *work)
 	hex2bin(coinbase + pool->swork.cb1_len + pool->n1_len, work->nonce2, pool->n2size);
 	hex2bin(coinbase + pool->swork.cb1_len + pool->n1_len + pool->n2size, pool->swork.coinbase2, pool->swork.cb2_len);
 
-	/* Generate merkle root */
-	gen_hash(coinbase, merkle_root, pool->swork.cb_len);
-	free(coinbase);
-	memcpy(merkle_sha, merkle_root, 32);
-	for (i = 0; i < pool->swork.merkles; i++) {
-		unsigned char merkle_bin[32];
+    /* Generate merkle root */
+    gen_hash(coinbase, merkle_root, pool->swork.cb_len);
+    free(coinbase);
+    for(i = 0; i < pool->swork.merkles; i++) {
+        hex2bin((uchar *) temp_bin, (char *) pool->swork.merkle[i], 32);
+        memcpy(&merkle_root[32], &temp_bin[0], 32);
+        gen_hash(merkle_root, merkle_root, 64);
+    }
 
-		hex2bin(merkle_bin, pool->swork.merkle[i], 32);
-		memcpy(merkle_sha + 32, merkle_bin, 32);
-		gen_hash(merkle_sha, merkle_root, 64);
-		memcpy(merkle_sha, merkle_root, 32);
-	}
-	data32 = (uint32_t *)merkle_sha;
-	swap32 = (uint32_t *)merkle_root;
-	for (i = 0; i < 32 / 4; i++)
-		swap32[i] = swab32(data32[i]);
-	merkle_hash = bin2hex((const unsigned char *)merkle_root, 32);
-
-	header = calloc(pool->swork.header_len, 1);
-	if (unlikely(!header))
-		quit(1, "Failed to calloc header in gen_stratum_work");
-	sprintf(header, "%s%s%s%s%s%s%s",
-		pool->swork.bbversion,
-		pool->swork.prev_hash,
-		merkle_hash,
-		pool->swork.ntime,
-		pool->swork.nbit,
-		"00000000", /* nonce */
-		workpadding);
+    /* Assemble the block header */
+    if(opt_neoscrypt) {
+        /* Version */
+        hex2bin((uchar *) &t, (char *) pool->swork.bbversion, 4);
+        data[0] = be32toh(t);
+        /* Previous block hash */
+        hex2bin((uchar *) temp_bin, (char *) pool->swork.prev_hash, 32);
+        for(i = 0; i < 8; i++)
+          data[i + 1] = be32toh(((uint *) temp_bin)[i]);
+        /* Merkle root */
+        for(i = 0; i < 8; i++)
+          data[i + 9] = le32toh(((uint *) merkle_root)[i]);
+        /* Time */
+        hex2bin((uchar *) &t, (char *) pool->swork.ntime, 4);
+        data[17] = be32toh(t);
+        /* Difficulty */
+        hex2bin((uchar *) &t, (char *) pool->swork.nbit, 4);
+        data[18] = be32toh(t);
+        /* Erase the remaining part */
+        memset(&data[19], 0x00, 52);
+    } else {
+        /* Version */
+        hex2bin((uchar *) &t, (char *) pool->swork.bbversion, 4);
+        data[0] = le32toh(t);
+        /* Previous block hash */
+        hex2bin((uchar *) temp_bin, (char *) pool->swork.prev_hash, 32);
+        for(i = 0; i < 8; i++)
+          data[i + 1] = le32toh(((uint *) temp_bin)[i]);
+        /* Merkle root */
+        for(i = 0; i < 8; i++)
+          data[i + 9] = be32toh(((uint *) merkle_root)[i]);
+        /* Time */
+        hex2bin((uchar *) &t, (char *) pool->swork.ntime, 4);
+        data[17] = le32toh(t);
+        /* Difficulty */
+        hex2bin((uchar *) &t, (char *) pool->swork.nbit, 4);
+        data[18] = le32toh(t);
+        /* Erase the remaining part */
+        memset(&data[19], 0x00, 52);
+        /* Not necessary probably */
+        data[20] = 0x80000000;
+        data[31] = 0x00000280;
+    }
 
 	/* Store the stratum work diff to check it still matches the pool's
 	 * stratum diff when submitting shares */
@@ -6448,17 +6532,18 @@ static void gen_stratum_work(struct pool *pool, struct work *work)
 
 	mutex_unlock(&pool->pool_lock);
 
-	applog(LOG_DEBUG, "Generated stratum merkle %s", merkle_hash);
-	applog(LOG_DEBUG, "Generated stratum header %s", header);
-	applog(LOG_DEBUG, "Work job_id %s nonce2 %s ntime %s", work->job_id, work->nonce2, work->ntime);
+    if(opt_debug) {
+        char *merkle_hash, *header;
+        merkle_hash = bin2hex((const uchar *) merkle_root, 32);
+        applog(LOG_DEBUG, "Generated Stratum merkle root %s", merkle_hash);
+        header = bin2hex((const uchar *) data, opt_neoscrypt ? 80 : 128);
+        applog(LOG_DEBUG, "Generated Stratum block header %s", header);
+        applog(LOG_DEBUG, "Work job_id %s nonce2 %s ntime %s", work->job_id, work->nonce2, work->ntime);
+        free(merkle_hash);
+        free(header);
+    }
 
-	free(merkle_hash);
-
-	/* Convert hex data to binary data for work */
-	if (unlikely(!hex2bin(work->data, header, 128)))
-		quit(1, "Failed to convert header to data in gen_stratum_work");
-	free(header);
-	calc_midstate(work);
+    if(!opt_neoscrypt) calc_midstate(work);
 
 	set_work_target(work, work->sdiff);
 
@@ -6534,18 +6619,48 @@ enum test_nonce2_result hashtest2(struct work *work, bool checktarget)
 	return TNR_GOOD;
 }
 
-enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce, bool checktarget)
-{
-	uint32_t *work_nonce = (uint32_t *)(work->data + 64 + 12);
-	*work_nonce = htole32(nonce);
+/* Quick verification of OpenCL nonces */
+enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce,
+  bool checktarget) {
 
-#ifdef USE_SCRYPT
-	if (opt_scrypt) {
-		if (!scrypt_test(work->data, work->target, nonce))
-			return TNR_BAD;
-		return TNR_GOOD;
-	}
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+
+        neoscrypt((uchar *) work->data, (uchar *) work->hash, 0x80000620);
+
+        if(work->hash[31])
+          return(TNR_BAD);
+
+        if(((ullong *) work->hash)[3] > ((ullong *) work->target)[3])
+          return(TNR_HIGH);
+
+        return(TNR_GOOD);
+    }
 #endif
+
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        uint data[20], i;
+
+        for(i = 0; i < 19; i++)
+          data[i] = htobe32(((uint *) work->data)[i]);
+
+        data[19] = htobe32(nonce);
+
+        neoscrypt((uchar *) data, (uchar *) work->hash, 0x80000903);
+
+        if(((uint *) work->hash)[7] & 0xFFFF0000)
+          return(TNR_BAD);
+
+        if(((ullong *) work->hash)[3] > ((ullong *) work->target)[3])
+          return(TNR_HIGH);
+
+        return(TNR_GOOD);
+    }
+#endif
+
+    uint *work_nonce = (uint *) (work->data + 76);
+    *work_nonce = htole32(nonce);
 
 	return hashtest2(work, checktarget);
 }
@@ -6809,6 +6924,8 @@ out:
 	thread_reportin(mythr);
 	applog(LOG_ERR, "Thread %d failure, exiting", thr_id);
 	tq_freeze(mythr->q);
+
+    mythr->has_pth = false;
 
 	return NULL;
 }
@@ -7399,39 +7516,42 @@ void print_summary(void)
 {
 	struct timeval diff;
 	int hours, mins, secs, i;
-	double utility, efficiency = 0.0;
+
+    double efficiency = 0.0;
+    if(total_bytes_xfer)
+      efficiency = total_diff_accepted * 2048.0 / (double)total_bytes_xfer;
 
 	timersub(&total_tv_end, &total_tv_start, &diff);
 	hours = diff.tv_sec / 3600;
 	mins = (diff.tv_sec % 3600) / 60;
 	secs = diff.tv_sec % 60;
 
-	utility = total_accepted / total_secs * 60;
-	efficiency = total_bytes_xfer ? total_diff_accepted * 2048. / total_bytes_xfer : 0.0;
-
 	applog(LOG_WARNING, "\nSummary of runtime statistics:\n");
 	applog(LOG_WARNING, "Started at %s", datestamp);
 	if (total_pools == 1)
 		applog(LOG_WARNING, "Pool: %s", pools[0]->rpc_url);
-#ifdef WANT_CPUMINE
-	if (opt_n_threads)
-		applog(LOG_WARNING, "CPU hasher algorithm used: %s", algo_names[opt_algo]);
+#if (WANT_CPUMINE)
+    if(opt_n_threads)
+      applog(LOG_WARNING, "CPU hashing algorithm used: %s", algo_names[opt_algo]);
 #endif
-	applog(LOG_WARNING, "Runtime: %d hrs : %d mins : %d secs", hours, mins, secs);
-	applog(LOG_WARNING, "Average hashrate: %.1f Megahash/s", total_mhashes_done / total_secs);
+    applog(LOG_WARNING, "Run time: %d hrs %d mins %d secs", hours, mins, secs);
+    applog(LOG_WARNING, "Average hash rate: %.4f MH/s", total_mhashes_done / total_secs);
 	applog(LOG_WARNING, "Solved blocks: %d", found_blocks);
 	applog(LOG_WARNING, "Best share difficulty: %s", best_share);
 	applog(LOG_WARNING, "Queued work requests: %d", total_getworks);
 	applog(LOG_WARNING, "Share submissions: %d", total_accepted + total_rejected);
 	applog(LOG_WARNING, "Accepted shares: %d", total_accepted);
 	applog(LOG_WARNING, "Rejected shares: %d", total_rejected);
-	applog(LOG_WARNING, "Accepted difficulty shares: %1.f", total_diff_accepted);
-	applog(LOG_WARNING, "Rejected difficulty shares: %1.f", total_diff_rejected);
+    applog(LOG_WARNING, "Accepted diff1 shares: %1.f", total_diff_accepted);
+    applog(LOG_WARNING, "Rejected diff1 shares: %1.f", total_diff_rejected);
 	if (total_accepted || total_rejected)
 		applog(LOG_WARNING, "Reject ratio: %.1f%%", (double)(total_rejected * 100) / (double)(total_accepted + total_rejected));
 	applog(LOG_WARNING, "Hardware errors: %d", hw_errors);
 	applog(LOG_WARNING, "Efficiency (accepted shares * difficulty / 2 KB): %.2f", efficiency);
-	applog(LOG_WARNING, "Utility (accepted shares / min): %.2f/min\n", utility);
+    applog(LOG_WARNING, "Utility (accepted shares / min): %.2f/min",
+      (double)total_accepted / (double)(total_secs * 60));
+    applog(LOG_WARNING, "Work Utility (diff1 shares solved / min): %.2f/min\n",
+      (double)total_diff1 / (double)(total_secs * 60));
 
 	applog(LOG_WARNING, "Discarded work due to new blocks: %d", total_discarded);
 	applog(LOG_WARNING, "Stale submissions discarded due to new blocks: %d", total_stale);
@@ -7998,10 +8118,10 @@ int main(int argc, char *argv[])
 		opt_log_output = true;
 
 #ifdef WANT_CPUMINE
-#ifdef USE_SCRYPT
-	if (opt_scrypt)
-		set_scrypt_algo(&opt_algo);
-	else
+#if (USE_NEOSCRYPT) || (OPT_SCRYPT)
+    if(opt_neoscrypt || opt_scrypt)
+      set_algo_quick(&opt_algo);
+    else
 #endif
 	if (0 <= opt_bench_algo) {
 		double rate = bench_algo_stage3(opt_bench_algo);
@@ -8048,32 +8168,31 @@ int main(int argc, char *argv[])
 	gpu_threads = 0;
 #endif
 
-#ifdef USE_ICARUS
-	if (!opt_scrypt)
-	{
-		cairnsmore_api.api_detect();
-		icarus_api.api_detect();
-	}
+#if (USE_ICARUS)
+    if(!opt_neoscrypt || !opt_scrypt) {
+        cairnsmore_api.api_detect();
+        icarus_api.api_detect();
+    }
 #endif
 
-#ifdef USE_BITFORCE
-	if (!opt_scrypt)
-		bitforce_api.api_detect();
+#if (USE_BITFORCE)
+    if(!opt_neoscrypt || !opt_scrypt)
+      bitforce_api.api_detect();
 #endif
 
-#ifdef USE_MODMINER
-	if (!opt_scrypt)
-		modminer_api.api_detect();
+#if (USE_MODMINER)
+    if(!opt_neoscrypt || !opt_scrypt)
+      modminer_api.api_detect();
 #endif
 
-#ifdef USE_X6500
-	if (likely(have_libusb) && !opt_scrypt)
-		x6500_api.api_detect();
+#if (USE_X6500)
+    if(likely(have_libusb) && (!opt_neoscrypt || !opt_scrypt))
+      x6500_api.api_detect();
 #endif
 
-#ifdef USE_ZTEX
-	if (likely(have_libusb) && !opt_scrypt)
-		ztex_api.api_detect();
+#if (USE_ZTEX)
+    if(likely(have_libusb) && (!opt_neoscrypt || !opt_scrypt))
+      ztex_api.api_detect();
 #endif
 
 #ifdef WANT_CPUMINE
@@ -8269,14 +8388,6 @@ int main(int argc, char *argv[])
 	} while (!pools_active);
 found_active_pool: ;
 
-#ifdef USE_SCRYPT
-	if (detect_algo == 1 && !opt_scrypt) {
-		applog(LOG_NOTICE, "Detected scrypt algorithm");
-		opt_scrypt = true;
-	}
-#endif
-	detect_algo = 0;
-
 begin_bench:
 	total_mhashes_done = 0;
 	for (i = 0; i < total_devices; i++) {
@@ -8352,17 +8463,15 @@ begin_bench:
 		}
 	}
 
-#ifdef HAVE_OPENCL
-	applog(LOG_INFO, "%d gpu miner threads started", gpu_threads);
-	for (i = 0; i < nDevs; i++)
-		pause_dynamic_threads(i);
+#if (HAVE_OPENCL)
+    applog(LOG_INFO, "%d GPU mining threads started", gpu_threads);
+    for(i = 0; i < nDevs; i++)
+      pause_dynamic_threads(i);
 #endif
 
-#ifdef WANT_CPUMINE
-	applog(LOG_INFO, "%d cpu miner threads started, "
-		"using SHA256 '%s' algorithm.",
-		opt_n_threads,
-		algo_names[opt_algo]);
+#if (WANT_CPUMINE)
+    applog(LOG_INFO, "%d CPU mining threads started using the '%s' algorithm",
+      opt_n_threads, algo_names[opt_algo]);
 #endif
 
 	gettimeofday(&total_tv_start, NULL);

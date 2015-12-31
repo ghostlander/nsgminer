@@ -1321,7 +1321,7 @@ Vals[2]+=Vals[0];
 Vals[2]+=(rotr(Vals[1],6)^rotr(Vals[1],11)^rotr(Vals[1],25));
 Vals[2]+=ch(Vals[1],Vals[4],Vals[3]);
 
-#define FOUND (0x0F)
+#define FOUND (0xFF)
 #define SETFOUND(Xnonce) output[output[FOUND]++] = Xnonce
 
 #if defined(VECTORS2) || defined(VECTORS4)

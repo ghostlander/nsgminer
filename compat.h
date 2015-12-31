@@ -86,6 +86,7 @@ struct tm *localtime_convert(time_t t)
 	return localtime(&t);
 }
 
+#if !(__MINGW64__)
 static inline int nanosleep(const struct timespec *req, struct timespec *rem)
 {
 	struct timeval tstart;
@@ -127,6 +128,7 @@ static inline int sleep(unsigned int secs)
 		return 0;
 	return rem.tv_sec + (rem.tv_nsec ? 1 : 0);
 }
+#endif
 
 enum {
 	PRIO_PROCESS		= 0,
@@ -145,9 +147,6 @@ typedef unsigned int uint;
 typedef long suseconds_t;
 #endif
 
-#define PTH(thr) ((thr)->pth.p)
-#else
-#define PTH(thr) ((thr)->pth)
 #endif /* WIN32 */
 
 #endif /* __COMPAT_H__ */

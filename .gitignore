@@ -1,7 +1,7 @@
-bfgminer
-bfgminer.exe
-bfgminer-rpc
-bfgminer-rpc.exe
+nsgminer
+nsgminer.exe
+nsgminer-rpc
+nsgminer-rpc.exe
 bitforce-firmware-flash
 cgminer
 cgminer.exe
@@ -53,7 +53,7 @@ lib/warn-on-use.h
 mkinstalldirs
 
 .pc
-bfgminer-bitforce.conf
+nsgminer-bitforce.conf
 
 vgcore.*
 core*

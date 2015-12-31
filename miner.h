@@ -27,6 +27,12 @@
 #include <jansson.h>
 #include <curl/curl.h>
 
+typedef unsigned char uchar;
+#if !(uint)
+typedef unsigned int uint;
+#endif
+typedef unsigned long long ullong;
+
 #include <blkmaker.h>
 #include <blktemplate.h>
 
@@ -319,7 +325,8 @@ enum cl_kernels {
 	KL_PHATK,
 	KL_DIAKGCN,
 	KL_DIABLO,
-	KL_SCRYPT,
+    KL_NEOSCRYPT,
+    KL_SCRYPT,
 };
 
 enum dev_reason {
@@ -455,6 +462,11 @@ struct cgpu_info {
 	enum cl_kernels kernel;
 	cl_ulong max_alloc;
 
+#if (USE_NEOSCRYPT)
+    uint max_intensity;
+    uint max_global_threads;
+#endif
+
 #ifdef USE_SCRYPT
 	int opt_lg, lookup_gap;
 	size_t opt_tc, thread_concurrency;
@@ -525,6 +537,7 @@ struct thr_info {
 	int		device_thread;
 	bool		primary_thread;
 
+    bool has_pth;
 	pthread_t	pth;
 	struct thread_q	*q;
 	struct cgpu_info *cgpu;
@@ -731,6 +744,7 @@ extern json_t *json_rpc_call(CURL *curl, const char *url, const char *userpass,
 			     struct pool *pool, bool);
 extern bool our_curl_supports_proxy_uris();
 extern char *bin2hex(const unsigned char *p, size_t len);
+extern void _bin2hex(char *s, const uchar *p, size_t len);
 extern bool hex2bin(unsigned char *p, const char *hexstr, size_t len);
 
 typedef bool (*sha256_func)(struct thr_info*, const unsigned char *pmidstate,
@@ -742,6 +756,7 @@ typedef bool (*sha256_func)(struct thr_info*, const unsigned char *pmidstate,
 	uint32_t nonce);
 
 extern bool fulltest(const unsigned char *hash, const unsigned char *target);
+extern int fulltest_le(const uint *hash, const uint *target);
 
 extern int opt_queue;
 extern int opt_scantime;
@@ -782,15 +797,17 @@ extern void add_pool_details(struct pool *pool, bool live, char *url, char *user
 
 #define MAX_GPUDEVICES 16
 
-#define MIN_INTENSITY -10
-#define _MIN_INTENSITY_STR "-10"
-#ifdef USE_SCRYPT
-#define MAX_INTENSITY 20
-#define _MAX_INTENSITY_STR "20"
-#else
-#define MAX_INTENSITY 14
-#define _MAX_INTENSITY_STR "14"
-#endif
+/* NeoScrypt limits */
+#define MIN_NEOSCRYPT_INTENSITY 8
+#define MAX_NEOSCRYPT_INTENSITY 18
+
+/* Scrypt limits */
+#define MIN_SCRYPT_INTENSITY 8
+#define MAX_SCRYPT_INTENSITY 20
+
+/* SHA-256d limits */
+#define MIN_SHA256D_INTENSITY -10
+#define MAX_SHA256D_INTENSITY 14
 
 extern struct list_head scan_devices;
 extern bool opt_force_dev_init;
@@ -803,11 +820,19 @@ extern bool opt_quiet;
 extern struct thr_info *thr_info;
 extern struct cgpu_info gpus[MAX_GPUDEVICES];
 extern int gpu_threads;
-#ifdef USE_SCRYPT
+
+#if (USE_NEOSCRYPT)
+extern bool opt_neoscrypt;
+#else
+#define opt_neoscrypt (0)
+#endif
+
+#if (USE_SCRYPT)
 extern bool opt_scrypt;
 #else
 #define opt_scrypt (0)
 #endif
+
 extern double total_secs;
 extern int mining_threads;
 extern struct cgpu_info *cpus;
@@ -862,7 +887,7 @@ typedef struct {
 	cl_uint B1addK6, PreVal0addK7, W16addK16, W17addK17;
 	cl_uint zeroA, zeroB;
 	cl_uint oneA, twoA, threeA, fourA, fiveA, sixA, sevenA;
-#ifdef USE_SCRYPT
+#if (USE_NEOSCRYPT) || (USE_SCRYPT)
 	struct work *work;
 #endif
 } dev_blk_ctx;

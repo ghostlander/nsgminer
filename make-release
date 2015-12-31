@@ -93,7 +93,7 @@ for build in "${builds[@]}"; do
 	NOCONFIGURE=1 \
 	./autogen.sh
 	./configure \
-		--prefix='C:\\Program Files\\BFGMiner\\' \
+		--prefix='C:\\Program Files\\nsgminer\\' \
 		CFLAGS="${CFLAGS} -Wall" \
 		--disable-cpumining \
 		--enable-opencl \

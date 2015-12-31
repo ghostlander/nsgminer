@@ -3,28 +3,16 @@ This is a multi-threaded multi-pool FPGA, GPU and CPU miner with ATI GPU
 monitoring, (over)clocking and fanspeed support for bitcoin and derivative
 coins. Do not use on multiple block chains at the same time!
 
-This code is provided entirely free of charge by the programmer in his spare
-time so donations would be greatly appreciated. Please consider donating to the
-address below.
+This code is provided entirely free of charge with no guarantee or
+responsibility of any kind expressed or implied.
 
-Luke-Jr <luke-jr+bfgminer@utopios.org>
-1QATWksNFGeUJCWBrN4g6hGM178Lovm7Wh
+John Doering <ghostlander@phoenixcoin.org>
 
-DOWNLOADS:
 
-http://luke.dashjr.org/programs/bitcoin/files/bfgminer
+SOURCE CODE AND PRE-COMPILED BINARIES:
 
-GIT TREE:
+http://github.com/ghostlander/nsgminer
 
-https://github.com/luke-jr/bfgminer
-
-Bug reports:
-
-https://github.com/luke-jr/bfgminer/issues
-
-IRC Channel:
-
-irc://irc.freenode.net/eligius
 
 License: GPLv3.  See COPYING for details.
 
@@ -63,7 +51,7 @@ Optional Dependencies:
 	  yasm 1.0.1+        http://yasm.tortall.net/
 
 
-BFGMiner specific configuration options:
+NSGminer specific configuration options:
 	--disable-scrypt        Build without support for Scrypt (default enabled)
 	--enable-cpumining      Build with support for CPU mining (default disabled)
 	--disable-opencl        Build without support for OpenCL (default enabled)
@@ -108,26 +96,26 @@ Basic *nix build instructions:
 make
 
 On Mac OS X, you can use Homebrew to install the dependency libraries. When you
-are ready to build BFGMiner, you may need to point the configure script at one
+are ready to build NSGminer, you may need to point the configure script at one
 or more pkg-config paths. For example:
 	./configure PKG_CONFIG_PATH=/usr/local/opt/curl/lib/pkgconfig:/usr/local/opt/jansson/lib/pkgconfig
 
 Native WIN32 build instructions: see windows-build.txt
 
-If you build BFGMiner from source, it is recommended that you run it from the
+If you build NSGminer from source, it is recommended that you run it from the
 build directory. On *nix, you will usually need to prepend your command with a
-path like this (if you are in the bfgminer directory already): ./bfgminer
+path like this (if you are in the nsgminer directory already): ./nsgminer
 
 ---
 
-Usage instructions:  Run "bfgminer --help" to see options:
+Usage instructions:  Run "nsgminer --help" to see options:
 
 Usage: . [-atDdGCgIKklmpPQqrRsTouvwOchnV] 
 Options for both config file and command line:
 --api-allow         Allow API access (if enabled) only to the given list of [W:]IP[/Prefix] address[/subnets]
                     This overrides --api-network and you must specify 127.0.0.1 if it is required
                     W: in front of the IP address gives that address privileged access to all api commands
---api-description   Description placed in the API status header (default: BFGMiner version)
+--api-description   Description placed in the API status header (default: NSGminer version)
 --api-groups        API one letter groups G:cmd:cmd[,P:cmd:*...]
                     See API-README for usage
 --api-listen        Listen for API requests (default: disabled)
@@ -136,7 +124,7 @@ Options for both config file and command line:
 --api-network       Allow API (if enabled) to listen on/for any address (default: only 127.0.0.1)
 --api-port          Port number of miner API (default: 4028)
 --balance           Change multipool strategy from failover to even share balance
---benchmark         Run BFGMiner in benchmark mode - produces no shares
+--benchmark         Run NSGminer in benchmark mode - produces no shares
 --coinbase-addr <arg> Set coinbase payout address for solo mining
 --coinbase-sig <arg> Set coinbase signature when possible
 --compact           Use compact display without per device statistics
@@ -234,16 +222,16 @@ FPGA mining boards (BitForce, Icarus, ModMiner, X6500, ZTEX) only options:
 
 This option is only for BitForce, Icarus, and/or ModMiner FPGAs
 
-To use FPGAs, you will need to be sure the user BFGMiner is running as has
+To use FPGAs, you will need to be sure the user NSGminer is running as has
 appropriate permissions. This varies by operating system.
 On Gentoo: sudo usermod <username> -a -G uucp
 On Ubuntu: sudo usermod <username> -a -G dialout
 Note that on GNU/Linux systems, you will usually need to login again before
 group changes take effect.
 
-By default, BFGMiner will scan for autodetected FPGAs unless at least one -S is
-specified for that driver. If you specify -S and still want BFGMiner to scan,
-you must also use "-S auto". If you want to prevent BFGMiner from scanning
+By default, NSGminer will scan for autodetected FPGAs unless at least one -S is
+specified for that driver. If you specify -S and still want NSGminer to scan,
+you must also use "-S auto". If you want to prevent NSGminer from scanning
 without specifying a device, you can use "-S noauto". Note that presently,
 autodetection only works on Linux, and might only detect one device depending
 on the version of udev being used. If you want to scan all serial ports, you
@@ -286,7 +274,7 @@ CPU only options (not included in binaries):
 
 EXECUTIVE SUMMARY ON USAGE:
 
-After saving configuration from the menu, you do not need to give BFGMiner any
+After saving configuration from the menu, you do not need to give NSGminer any
 arguments and it will load your configuration.
 
 Any configuration file may also contain a single
@@ -297,35 +285,35 @@ Writing the configuration will save all settings from all files in the output.
 
 Single pool, regular desktop:
 
-bfgminer -o http://pool:port -u username -p password
+nsgminer -o http://pool:port -u username -p password
 
 Single pool, dedicated miner:
 
-bfgminer -o http://pool:port -u username -p password -I 9
+nsgminer -o http://pool:port -u username -p password -I 9
 
 Single pool, first card regular desktop, 3 other dedicated cards:
 
-bfgminer -o http://pool:port -u username -p password -I d,9,9,9
+nsgminer -o http://pool:port -u username -p password -I d,9,9,9
 
 Multiple pool, dedicated miner:
 
-bfgminer -o http://pool1:port -u pool1username -p pool1password -o http://pool2:port -u pool2usernmae -p pool2password -I 9
+nsgminer -o http://pool1:port -u pool1username -p pool1password -o http://pool2:port -u pool2usernmae -p pool2password -I 9
 
 Add overclocking settings, GPU and fan control for all cards:
 
-bfgminer -o http://pool:port -u username -p password -I 9 --auto-fan --auto-gpu --gpu-engine 750-950 --gpu-memclock 300
+nsgminer -o http://pool:port -u username -p password -I 9 --auto-fan --auto-gpu --gpu-engine 750-950 --gpu-memclock 300
 
 Add overclocking settings, GPU and fan control with different engine settings for 4 cards:
 
-bfgminer -o http://pool:port -u username -p password -I 9 --auto-fan --auto-gpu --gpu-engine 750-950,945,700-930,960 --gpu-memclock 300
+nsgminer -o http://pool:port -u username -p password -I 9 --auto-fan --auto-gpu --gpu-engine 750-950,945,700-930,960 --gpu-memclock 300
 
 Single pool with a standard http proxy, regular desktop:
 
-bfgminer -o http://pool:port -x http://proxy:port -u username -p password
+nsgminer -o http://pool:port -x http://proxy:port -u username -p password
 
 Single pool with a socks5 proxy, regular desktop:
 
-bfgminer -o http://pool:port -x socks5://proxy:port -u username -p password
+nsgminer -o http://pool:port -x socks5://proxy:port -u username -p password
 
 The list of proxy types are:
  http:    standard http 1.1 proxy
@@ -336,7 +324,7 @@ The list of proxy types are:
 
 Proxy support requires cURL version 7.21.7 or newer.
 
-If you specify the --socks-proxy option to BFGMiner, it will only be applied to
+If you specify the --socks-proxy option to NSGminer, it will only be applied to
 all pools that don't specify their own proxy setting like above
 
 READ WARNINGS AND DOCUMENTATION BELOW ABOUT OVERCLOCKING
@@ -437,7 +425,7 @@ S:   Stale shares discarded (not submitted so don't count as rejects)
 HW:  The number of HardWare errors
 U:   The Utility defined as the number of shares / minute
 
-The BFGMiner status line shows:
+The NSGminer status line shows:
  ST: 1  DW: 0  GW: 301  LW: 8  GF: 1  NB: 1  AS: 0  RF: 1  E: 2.42
 
 ST is STaged work items (ready to use).
@@ -462,7 +450,7 @@ Block: ...1b89f8d3 #217364  Diff:2.98M  Started: [17:17:22]  Best share: 2.71K
 
 This shows a short stretch of the current block, the next block's height and
 difficulty, when the search for the new block started, and the all time best
-difficulty share you've found since starting BFGMiner this time.
+difficulty share you've found since starting NSGminer this time.
 
 Each device shows:
  BFL 0:  68.7C         | 872.7/866.7/992.0Mh/s | A:95 R:3 HW:0 U:13.86/m
@@ -513,23 +501,23 @@ and uses it to try to end up doing the same amount of work for all pools.
 ---
 SOLO MINING
 
-BFGMiner supports solo mining with any GBT-compatible bitcoin node (such as
+NSGminer supports solo mining with any GBT-compatible bitcoin node (such as
 bitcoind). To use this mode, you need to specify the URL of your bitcoind node
 using the usual pool options (--url, --userpass, etc), and the --coinbase-addr
 option to specify the Bitcoin address you wish to receive the block rewards
-mined. If you are solo mining with more than one instance of BFGMiner (or any
+mined. If you are solo mining with more than one instance of NSGminer (or any
 other software) per payout address, you must also specify data using the
 --coinbase-sig option to ensure each miner is working on unique work. Note
 that this data will be publicly seen if your miner finds a block using any
 GBT-enabled pool, even when not solo mining (such as failover). If your
 bitcoin node does not support longpolling (for example, bitcoind 0.8.x), you
 should consider setting up a failover pool to provide you with block
-notifications. Note that solo mining does not use shares, so BFGMiner's utility
+notifications. Note that solo mining does not use shares, so NSGminer's utility
 hashrate (third column) will swing widely and read zero until you find a block.
 
 Example solo mining usage:
 
-bfgminer -o http://localhost:8332 -u username -p password \
+nsgminer -o http://localhost:8332 -u username -p password \
     --coinbase-addr 1QATWksNFGeUJCWBrN4g6hGM178Lovm7Wh \
     --coinbase-sig "rig1: This is Joe's block!"
 
@@ -537,15 +525,15 @@ bfgminer -o http://localhost:8332 -u username -p password \
 ---
 LOGGING
 
-BFGMiner will log to stderr if it detects stderr is being redirected to a file.
+NSGminer will log to stderr if it detects stderr is being redirected to a file.
 To enable logging simply add 2>logfile.txt to your command line and logfile.txt
 will contain the logged output at the log level you specify (normal, verbose,
 debug etc.)
 
 In other words if you would normally use:
-./bfgminer -o xxx -u yyy -p zzz
+./nsgminer -o xxx -u yyy -p zzz
 if you use
-./bfgminer -o xxx -u yyy -p zzz 2>logfile.txt
+./nsgminer -o xxx -u yyy -p zzz 2>logfile.txt
 it will log to a file called logfile.txt and otherwise work the same.
 
 There is also the -m option on linux which will spawn a command of your choice
@@ -573,14 +561,14 @@ usually 0.000 unless there was a problem with submitting the work,
 S:n.nnn is how long it took to submit the completed work and await the reply,
 R:hh:mm:ss is the actual time the work submit reply was received
 
-If you start BFGMiner with the --sharelog option, you can get detailed
+If you start NSGminer with the --sharelog option, you can get detailed
 information for each share found. The argument to the option may be "-" for
 standard output (not advisable with the ncurses UI), any valid positive number
 for that file descriptor, or a filename.
 
 To log share data to a file named "share.log", you can use either:
-./bfgminer --sharelog 50 -o xxx -u yyy -p zzz 50>share.log
-./bfgminer --sharelog share.log -o xxx -u yyy -p zzz
+./nsgminer --sharelog 50 -o xxx -u yyy -p zzz 50>share.log
+./nsgminer --sharelog share.log -o xxx -u yyy -p zzz
 
 For every share found, data will be logged in a CSV (Comma Separated Value)
 format:
@@ -603,14 +591,14 @@ MAY CAUSE TO YOUR HARDWARE. OVERCLOCKING CAN INVALIDATE WARRANTIES, DAMAGE
 HARDWARE AND EVEN CAUSE FIRES. THE AUTHOR ASSUMES NO RESPONSIBILITY FOR ANY
 DAMAGE YOU MAY CAUSE OR UNPLANNED CHILDREN THAT MAY OCCUR AS A RESULT.
 
-The GPU monitoring, clocking and fanspeed control incorporated into BFGMiner
+The GPU monitoring, clocking and fanspeed control incorporated into NSGminer
 comes through use of the ATI Display Library. As such, it only supports ATI
-GPUs. Even if ADL support is successfully built into BFGMiner, unless the card
+GPUs. Even if ADL support is successfully built into NSGminer, unless the card
 and driver supports it, no GPU monitoring/settings will be available.
 
-BFGMiner supports initial setting of GPU engine clock speed, memory clock
+NSGminer supports initial setting of GPU engine clock speed, memory clock
 speed, voltage, fanspeed, and the undocumented powertune feature of 69x0+ GPUs.
-The setting passed to BFGMiner is used by all GPUs unless separate values are
+The setting passed to NSGminer is used by all GPUs unless separate values are
 specified. All settings can all be changed within the menu on the fly on a
 per-GPU basis.
 
@@ -629,7 +617,7 @@ For example, to keep the 2nd GPU to its default clocks:
 --gpu-engine 950,0,930,960 --gpu-memclock 300,0,300,300
 
 AUTO MODES:
-There are two "auto" modes in BFGMiner, --auto-fan and --auto-gpu. These can be
+There are two "auto" modes in NSGminer, --auto-fan and --auto-gpu. These can be
 used independently of each other and are complementary. Both auto modes are
 designed to safely change settings while trying to maintain a target
 temperature. By default this is set to 75 degrees C but can be changed with:
@@ -678,11 +666,11 @@ temperature by the hysteresis amount, which is set to 3 by default and can be
 changed with:
 --temp-hysteresis
 If the temperature drops below the target temperature, and engine clock speed
-is not at the highest level set at startup, BFGMiner will raise the clock speed.
+is not at the highest level set at startup, NSGminer will raise the clock speed.
 If at any time you manually set an even higher clock speed successfully in
-BFGMiner, it will record this value and use it as its new upper limit (and the
+NSGminer, it will record this value and use it as its new upper limit (and the
 same for low clock speeds and lower limits). If the temperature goes over the
-cutoff limit (95 degrees by default), BFGMiner will completely disable the GPU
+cutoff limit (95 degrees by default), NSGminer will completely disable the GPU
 from mining and it will not be re-enabled unless manually done so. The cutoff
 temperature can be changed with:
 
@@ -704,31 +692,31 @@ may report the value was changed successfully, and the new card power profile
 information contains the values you set it to, that the card itself may
 refuse to use those settings. As the performance profile changes dynamically,
 querying the "current" value on the card can be wrong as well. So when changing
-values in BFGMiner, after a pause of 1 second, it will report to you the current
+values in NSGminer, after a pause of 1 second, it will report to you the current
 values where you should check that your change has taken. An example is that
 6970 reference cards will accept low memory values but refuse to actually run
 those lower memory values unless they're within 125 of the engine clock speed.
 In that scenario, they usually set their real speed back to their default.
 
-BFGMiner reports the so-called "safe" range of whatever it is you are modifying
+NSGminer reports the so-called "safe" range of whatever it is you are modifying
 when you ask to modify it on the fly. However, you can change settings to values
 outside this range. Despite this, the card can easily refuse to accept your
 changes, or worse, to accept your changes and then silently ignore them. So
 there is absolutely to know how far to/from where/to it can set things safely or
 otherwise, and there is nothing stopping you from at least trying to set them
 outside this range. Being very conscious of these possible failures is why
-BFGMiner will report back the current values for you to examine how exactly the
+NSGminer will report back the current values for you to examine how exactly the
 card has responded. Even within the reported range of accepted values by the
 card, it is very easy to crash just about any card, so it cannot use those
 values to determine what range to set. You have to provide something meaningful
-manually for BFGMiner to work with through experimentation.
+manually for NSGminer to work with through experimentation.
 
 STARTUP / SHUTDOWN:
-When BFGMiner starts up, it tries to read off the current profile information
-for clock and fan speeds and stores these values. When quitting BFGMiner, it
+When NSGminer starts up, it tries to read off the current profile information
+for clock and fan speeds and stores these values. When quitting NSGminer, it
 will then try to restore the original values. Changing settings outside of
-BFGMiner while it's running may be reset to the startup BFGMiner values when
-BFGMiner shuts down because of this.
+NSGminer while it's running may be reset to the startup NSGminer values when
+NSGminer shuts down because of this.
 
 ---
 
@@ -743,10 +731,10 @@ GPU DEVICE ISSUES and use of --gpu-map
 GPUs mine with OpenCL software via the GPU device driver. This means you need
 to have both an OpenCL SDK installed, and the GPU device driver RUNNING (i.e.
 Xorg up and running configured for all devices that will mine on linux etc.)
-Meanwhile, the hardware monitoring that BFGMiner offers for AMD devices relies
+Meanwhile, the hardware monitoring that NSGminer offers for AMD devices relies
 on the ATI Display Library (ADL) software to work. OpenCL DOES NOT TALK TO THE
 ADL. There is no 100% reliable way to know that OpenCL devices are identical
-to the ADL devices, as neither give off the same information. BFGMiner does its
+to the ADL devices, as neither give off the same information. NSGminer does its
 best to correlate these devices based on the order that OpenCL and ADL numbers
 them. It is possible that this will fail for the following reasons:
 
@@ -757,11 +745,11 @@ devices if you have two monitors connected to the one GPU.
 3. There are more ADL devices than OpenCL. ADL devices include any ATI GPUs,
 including ones that can't mine, like some older R4xxx cards.
 
-To cope with this, the ADVANCED option for --gpu-map is provided with BFGMiner.
+To cope with this, the ADVANCED option for --gpu-map is provided with NSGminer.
 DO NOT USE THIS UNLESS YOU KNOW WHAT YOU ARE DOING. The default will work the
 vast majority of the time unless you know you have a problem already.
 
-To get useful information, start BFGMiner with just the -n option. You will get
+To get useful information, start NSGminer with just the -n option. You will get
 output that looks like this:
 
 [2012-04-25 13:17:34] CL Platform 0 vendor: Advanced Micro Devices, Inc.
@@ -777,7 +765,7 @@ output that looks like this:
 [2012-04-25 13:17:34] 3 GPU devices max detected
 
 Note the number of devices here match, and the order is the same. If devices 1
-and 2 were different between Tahiti and Cayman, you could run BFGMiner with:
+and 2 were different between Tahiti and Cayman, you could run NSGminer with:
 --gpu-map 2:1,1:2
 And it would swap the monitoring it received from ADL device 1 and put it to
 OpenCL device 2 and vice versa.
@@ -815,7 +803,7 @@ To work around this you would use:
 
 FAQ
 
-Q: Why can't BFGMiner find lib<something> even after I installed it from source
+Q: Why can't NSGminer find lib<something> even after I installed it from source
 code?
 A: On UNIX-like operating systems, you often need to run some command to reload
 its library caches such as "ldconfig" or similar. A couple of systems (such as
@@ -825,13 +813,13 @@ this case, you can usually add it like this:
 Please note that if your libraries installed into lib64 instead of lib, you
 should use that in the ld.so config file above instead.
 
-Q: BFGMiner segfaults when I change my shell window size.
+Q: NSGminer segfaults when I change my shell window size.
 A: Older versions of libncurses have a bug to do with refreshing a window
 after a size change. Upgrading to a new version of curses will fix it.
 
 Q: Can I mine on servers from different networks (eg smartcoin and bitcoin) at
 the same time?
-A: No, BFGMiner keeps a database of the block it's working on to ensure it does
+A: No, NSGminer keeps a database of the block it's working on to ensure it does
 not work on stale blocks, and having different blocks from two networks would
 make it invalidate the work from each other.
 
@@ -849,11 +837,11 @@ does not support it.
 
 Q: The CPU usage is high.
 A: The ATI drivers after 11.6 have a bug that makes them consume 100% of one
-CPU core unnecessarily so downgrade to 11.6. Binding BFGMiner to one CPU core on
+CPU core unnecessarily so downgrade to 11.6. Binding NSGminer to one CPU core on
 windows can minimise it to 100% (instead of more than one core). Driver version
 11.11 on linux and 11.12 on windows appear to have fixed this issue. Note that
 later drivers may have an apparent return of high CPU usage. Try
-'export GPU_USE_SYNC_OBJECTS=1' on Linux before starting BFGMiner.
+'export GPU_USE_SYNC_OBJECTS=1' on Linux before starting NSGminer.
 
 Q: Can you implement feature X?
 A: I can, but time is limited, and people who donate are more likely to get
@@ -861,12 +849,12 @@ their feature requests implemented.
 
 Q: My GPU hangs and I have to reboot it to get it going again?
 A: The more aggressively the mining software uses your GPU, the less overclock
-you will be able to run. You are more likely to hit your limits with BFGMiner
+you will be able to run. You are more likely to hit your limits with NSGminer
 and you will find you may need to overclock your GPU less aggressively. The
 software cannot be responsible and make your GPU hang directly. If you simply
 cannot get it to ever stop hanging, try decreasing the intensity, and if even
 that fails, try changing to the poclbm kernel with -k poclbm, though you will
-sacrifice performance. BFGMiner is designed to try and safely restart GPUs as
+sacrifice performance. NSGminer is designed to try and safely restart GPUs as
 much as possible, but NOT if that restart might actually crash the rest of the
 GPUs mining, or even the machine. It tries to restart them with a separate
 thread and if that separate thread dies, it gives up trying to restart any more
@@ -874,18 +862,18 @@ GPUs.
 
 Q: Work keeps going to my backup pool even though my primary pool hasn't
 failed?
-A: BFGMiner checks for conditions where the primary pool is lagging and will
+A: NSGminer checks for conditions where the primary pool is lagging and will
 pass some work to the backup servers under those conditions. The reason for
 doing this is to try its absolute best to keep the GPUs working on something
 useful and not risk idle periods. You can disable this behaviour with the
 option --failover-only.
 
 Q: Is this a virus?
-A: BFGMiner is being packaged with other trojan scripts and some antivirus
-software is falsely accusing bfgminer.exe as being the actual virus, rather
-than whatever it is being packaged with. If you installed BFGMiner yourself,
+A: NSGminer is being packaged with other trojan scripts and some antivirus
+software is falsely accusing nsgminer.exe as being the actual virus, rather
+than whatever it is being packaged with. If you installed NSGminer yourself,
 then you do not have a virus on your computer. Complain to your antivirus
-software company. They seem to be flagging even source code now from BFGMiner
+software company. They seem to be flagging even source code now from NSGminer
 as viruses, even though text source files can't do anything by themself.
 
 Q: Can you modify the display to include more of one thing in the output and
@@ -914,43 +902,43 @@ Q: What happened to CPU mining?
 A: Being increasingly irrelevant for most users, and a maintenance issue, it is
 no longer under active development and will not be supported unless someone
 steps up to help maintain it. No binary builds supporting CPU mining will be
-released but CPU mining can be built into BFGMiner when it is compiled.
+released but CPU mining can be built into NSGminer when it is compiled.
 
-Q: I upgraded BFGMiner version and my hashrate suddenly dropped!
-A: No, you upgraded your SDK version unwittingly between upgrades of BFGMiner
+Q: I upgraded NSGminer version and my hashrate suddenly dropped!
+A: No, you upgraded your SDK version unwittingly between upgrades of NSGminer
 and that caused  your hashrate to drop. See the next question.
 
-Q: I upgraded my ATI driver/SDK/BFGMiner and my hashrate suddenly dropped!
-A: The hashrate performance in BFGMiner is tied to the version of the ATI SDK
-that is installed only for the very first time BFGMiner is run. This generates
+Q: I upgraded my ATI driver/SDK/NSGminer and my hashrate suddenly dropped!
+A: The hashrate performance in NSGminer is tied to the version of the ATI SDK
+that is installed only for the very first time NSGminer is run. This generates
 binaries that are used by the GPU every time after that. Any upgrades to the
 SDK after that time will have no effect on the binaries. However, if you
-install a fresh version of BFGMiner, and have since upgraded your SDK, new
+install a fresh version of NSGminer, and have since upgraded your SDK, new
 binaries will be built. It is known that the 2.6 ATI SDK has a huge hashrate
 penalty on generating new binaries. It is recommended to not use this SDK at
 this time unless you are using an ATI 7xxx card that needs it.
 
-Q: Which ATI SDK is the best for BFGMiner?
+Q: Which ATI SDK is the best for NSGminer?
 A: At the moment, versions 2.4 and 2.5 work the best. If you are forced to use
 the 2.6 SDK, the phatk kernel will perform poorly, while the diablo or my
 custom modified poclbm kernel are optimised for it.
 
 Q: I have multiple SDKs installed, can I choose which one it uses?
-A: Run bfgminer with the -n option and it will list all the platforms currently
-installed. Then you can tell BFGMiner which platform to use with --gpu-platform.
+A: Run nsgminer with the -n option and it will list all the platforms currently
+installed. Then you can tell NSGminer which platform to use with --gpu-platform.
 
 Q: GUI version?
 A: No. The RPC interface makes it possible for someone else to write one
 though.
 
 Q: I'm having an issue. What debugging information should I provide?
-A: Start BFGMiner with your regular commands and add -D -T --verbose and provide
+A: Start NSGminer with your regular commands and add -D -T --verbose and provide
 the full startup output and a summary of your hardware, operating system, ATI
 driver version and ATI stream version.
 
-Q: BFGMiner reports no devices or only one device on startup on Linux although
+Q: NSGminer reports no devices or only one device on startup on Linux although
 I have multiple devices and drivers+SDK installed properly?
-A: Try "export DISPLAY=:0" before running BFGMiner.
+A: Try "export DISPLAY=:0" before running NSGminer.
 
 Q: My network gets slower and slower and then dies for a minute?
 A; Try the --net-delay option.
@@ -962,7 +950,7 @@ with -g 1. It is also recommended to use --failover-only since the work is
 effectively like a different block chain. If mining with a Mini Rig, it is worth
 adding the --bfl-range option.
 
-Q: Are kernels from other mining software useable in BFGMiner?
+Q: Are kernels from other mining software useable in NSGminer?
 A: No, the APIs are slightly different between the different software and they
 will not work.
 
@@ -972,7 +960,7 @@ working in the logs?
 A: http://us.php.net/manual/en/sockets.installation.php
 
 Q: What is a PGA?
-A: At the moment, BFGMiner supports 5 FPGAs: BitForce, Icarus, ModMiner, X6500,
+A: At the moment, NSGminer supports 5 FPGAs: BitForce, Icarus, ModMiner, X6500,
 and ZTEX.
 They are Field-Programmable Gate Arrays that have been programmed to do Bitcoin
 mining. Since the acronym needs to be only 3 characters, the "Field-" part has
@@ -989,14 +977,14 @@ On windows you must install the pl2303 or ftdi driver required for the device
 pl2303: http://prolificusa.com/pl-2303hx-drivers/
 ftdi: http://www.ftdichip.com/Drivers/VCP.htm
 
-Q: I ran cgminer, and now BFGMiner doesn't work!
+Q: I ran cgminer, and now NSGminer doesn't work!
 A: cgminer has its own non-standard implementations of the drivers for most USB
 devices, and disables the official drivers (on Windows, you did this manually
-using Zadig). Before you can use BFGMiner, you will need to restore the original
+using Zadig). Before you can use NSGminer, you will need to restore the original
 driver. With Linux, usually rebooting or re-plugging the device is sufficient.
 
 Q: On Linux I can see the /dev/ttyUSB* devices for my ICA/BFL/MMQ FPGA, but
-BFGMiner can't mine on them
+NSGminer can't mine on them
 A: Make sure you have the required priviledges to access the /dev/ttyUSB*
 devices:
  sudo ls -las /dev/ttyUSB*
@@ -1012,12 +1000,12 @@ A: Stratum is a protocol designed to reduce resources for mining pools at the
 cost of keeping the miner in the dark and blindly transferring his mining
 authority to the pool. It is a return to the problems of the old centralized
 "getwork" protocol, but capable of scaling to hardware of any speed like the
-standard GBT protocol. If a pool uses stratum instead of GBT, BFGMiner will
+standard GBT protocol. If a pool uses stratum instead of GBT, NSGminer will
 automatically detect it and switch to the support as advertised if it can.
 Stratum uses direct TCP connections to the pool and thus it will NOT currently
 work through a http proxy but will work via a socks proxy if you need to use
 one. If you input the stratum port directly into your configuration, or use the
-special prefix "stratum+tcp://" instead of "http://", BFGMiner will ONLY try to
+special prefix "stratum+tcp://" instead of "http://", NSGminer will ONLY try to
 use stratum protocol mining.
 
 Q: Why don't the statistics add up: Accepted, Rejected, Stale, Hardware Errors,
@@ -1030,10 +1018,3 @@ However, the number is actually random and converges over time, it is an average
 not an exact value, thus you may find more or less than the expected average.
 
 ---
-
-This code is provided entirely free of charge by the programmer in his spare
-time so donations would be greatly appreciated. Please consider donating to the
-address below.
-
-Luke-Jr <luke-jr+bfgminer@utopios.org>
-1QATWksNFGeUJCWBrN4g6hGM178Lovm7Wh

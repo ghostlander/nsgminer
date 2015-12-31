@@ -1,11 +1,11 @@
-Source: bfgminer
+Source: nsgminer
 Priority: optional
 Section: misc
-Maintainer: Luke Dashjr <luke_bfgminer@dashjr.org>
-Standards-Version: 2.10.14
+Maintainer: John Doering <ghostlander@phoenixcoin.org>
+Standards-Version: 0.9.0
 Build-Depends: build-essential, debhelper, autoconf, automake, libtool, libssl-dev, pkg-config, libcurl4-openssl-dev, wget, unzip, libncurses5-dev, git, quilt
 
-Package: bfgminer
+Package: nsgminer
 Architecture: any
 Depends: libcurl3, libncurses5
 Description: This is a multi-threaded multi-pool GPU, FPGA and CPU miner with ATI GPU

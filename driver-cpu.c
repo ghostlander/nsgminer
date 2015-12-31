@@ -2,6 +2,7 @@
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2010 Jeff Garzik
+ * Copyright 2015 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -33,6 +34,8 @@
 #include "miner.h"
 #include "bench_block.h"
 #include "driver-cpu.h"
+
+#include "neoscrypt.h"
 
 #if defined(unix)
 	#include <errno.h>
@@ -131,12 +134,6 @@ extern bool scanhash_sse2_32(struct thr_info*, const unsigned char *pmidstate, u
 	uint32_t max_nonce, uint32_t *last_nonce,
 	uint32_t nonce);
 
-extern bool scanhash_scrypt(struct thr_info *thr, int thr_id, unsigned char *pdata, unsigned char *scratchbuf,
-	const unsigned char *ptarget,
-	uint32_t max_nonce, unsigned long *hashes_done);
-
-
-
 #ifdef WANT_CPUMINE
 static size_t max_name_len = 0;
 static char *name_spaces_pad = NULL;
@@ -164,7 +161,10 @@ const char *algo_names[] = {
 #ifdef WANT_ALTIVEC_4WAY
     [ALGO_ALTIVEC_4WAY] = "altivec_4way",
 #endif
-#ifdef WANT_SCRYPT
+#if (USE_NEOSCRYPT)
+    [ALGO_NEOSCRYPT] = "neoscrypt",
+#endif
+#if (USE_SCRYPT)
     [ALGO_SCRYPT] = "scrypt",
 #endif
 };
@@ -192,9 +192,6 @@ static const sha256_func sha256_funcs[] = {
 #endif
 #ifdef WANT_X8664_SSE4
 	[ALGO_SSE4_64]		= (sha256_func)scanhash_sse4_64,
-#endif
-#ifdef WANT_SCRYPT
-	[ALGO_SCRYPT]		= (sha256_func)scanhash_scrypt
 #endif
 };
 #endif
@@ -433,7 +430,7 @@ static double bench_algo_stage2(
 		snprintf(
 			unique_name,
 			sizeof(unique_name)-1,
-			"bfgminer-%p",
+			"nsgminer-%p",
 			(void*)module
 		);
 
@@ -680,8 +677,8 @@ char *set_algo(const char *arg, enum sha256_algos *algo)
 {
 	enum sha256_algos i;
 
-	if (opt_scrypt)
-		return "Can only use scrypt algorithm";
+    if(opt_neoscrypt || opt_scrypt)
+      return("default");
 
 	if (!strcmp(arg, "auto")) {
 		*algo = pick_fastest_algo();
@@ -697,12 +694,15 @@ char *set_algo(const char *arg, enum sha256_algos *algo)
 	return "Unknown algorithm";
 }
 
-#ifdef WANT_SCRYPT
-void set_scrypt_algo(enum sha256_algos *algo)
-{
-	*algo = ALGO_SCRYPT;
+void *set_algo_quick(enum sha256_algos *algo) {
+
+    if(opt_neoscrypt) {
+        *algo = ALGO_NEOSCRYPT;
+    } else if(opt_scrypt) {
+        *algo = ALGO_SCRYPT;
+    }
+
 }
-#endif
 
 void show_algo(char buf[OPT_SHOW_LEN], const enum sha256_algos *algo)
 {
@@ -807,48 +807,128 @@ static bool cpu_thread_init(struct thr_info *thr)
 	return true;
 }
 
-static int64_t cpu_scanhash(struct thr_info *thr, struct work *work, int64_t max_nonce)
-{
-	const int thr_id = thr->id;
-	unsigned char hash1[64];
-	uint32_t first_nonce = work->blk.nonce;
-	uint32_t last_nonce;
-	bool rc;
+#if (USE_NEOSCRYPT)
+/* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20 */
+static int scanhash_neoscrypt(struct thr_info *thr, uint *pdata, const uint *ptarget,
+  uint *phash, uint start_nonce, uint max_nonce, uint *final_nonce) {
+    uint hash[8];
+    uint i, inc_nonce = 1;
+    const uint t32 = ptarget[7];
 
-	memcpy(&hash1[0], &hash1_init[0], sizeof(hash1));
-CPUSearch:
-	last_nonce = first_nonce;
-	rc = false;
+    pdata[19] = start_nonce;
 
-	/* scan nonces for a proof-of-work hash */
-	{
-		sha256_func func = sha256_funcs[opt_algo];
-		rc = (*func)(
-			thr,
-			work->midstate,
-			work->data,
-			hash1,
-			work->hash,
-			work->target,
-			max_nonce,
-			&last_nonce,
-			work->blk.nonce
-		);
-	}
+    while((pdata[19] < max_nonce) && !thr->work_restart) {
 
-	/* if nonce found, submit work */
-	if (unlikely(rc)) {
-		applog(LOG_DEBUG, "CPU %d found something?", dev_from_id(thr_id));
-		submit_work_async(work, NULL);
-		work->blk.nonce = last_nonce + 1;
-		goto CPUSearch;
-	}
-	else
-	if (unlikely(last_nonce == first_nonce))
-		return 0;
+        neoscrypt((uchar *) pdata, (uchar *) hash, 0x80000620);
 
-	work->blk.nonce = last_nonce + 1;
-	return last_nonce - first_nonce + 1;
+        /* Quick hash check */
+        if(hash[7] <= t32) {
+            /* Complete hash check */
+            if(fulltest_le(hash, ptarget)) {
+                *final_nonce = pdata[19];
+                /* LE straight ordered */
+                for(i = 0; i < 8; i++)
+                  phash[i] = htole32(hash[i]);
+                return(1);
+            }
+        }
+
+        pdata[19] += inc_nonce;
+
+    }
+
+    *final_nonce = pdata[19];
+    return(0);
+}
+#endif
+
+#if (USE_SCRYPT)
+/* Scrypt(1024, 1, 1) with Salsa20/8 through NeoScrypt */
+static int scanhash_altscrypt(struct thr_info *thr, uint *pdata, const uint *ptarget,
+  uint *phash, uint start_nonce, uint max_nonce, uint *final_nonce) {
+    uint hash[8], data[20];
+    uint inc_nonce = 1;
+    const uint t32 = ptarget[7];
+    uint i;
+
+    /* Convert BE to LE */
+    for(i = 0; i < 19; i++)
+      data[i] = be32toh(pdata[i]);
+
+    data[19] = start_nonce;
+
+    while((data[19] < max_nonce) && !thr->work_restart) {
+
+        neoscrypt((uchar *) data, (uchar *) hash, 0x80000903);
+
+        /* Quick hash check */
+        if(hash[7] <= t32) {
+            /* Complete hash check */
+            if(fulltest_le(hash, ptarget)) {
+                /* Convert LE to BE and write back */
+                pdata[19] = htobe32(data[19]);
+                *final_nonce = data[19];
+                /* LE straight ordered */
+                for(i = 0; i < 8; i++)
+                  phash[i] = htole32(hash[i]);
+                return(1);
+            }
+        }
+
+        data[19] += inc_nonce;
+
+    }
+
+    *final_nonce = data[19];
+    return(0);
+}
+#endif
+
+static int64_t cpu_scanhash(struct thr_info *thr, struct work *work, int64_t max_nonce) {
+    const int thr_id = thr->id;
+    const uint first_nonce = work->blk.nonce;
+    uint final_nonce, rc;
+
+    while(!thr->work_restart) {
+
+        final_nonce = work->blk.nonce;
+
+#if (USE_NEOSCRYPT)
+        if(opt_neoscrypt) {
+            rc = scanhash_neoscrypt(thr, (uint *) work->data, (uint *) work->target,
+              (uint *) work->hash, work->blk.nonce, max_nonce, &final_nonce);
+        } else
+#endif
+#if (USE_SCRYPT)
+        if(opt_scrypt) {
+            rc = scanhash_altscrypt(thr, (uint *) work->data, (uint *) work->target,
+              (uint *) work->hash, work->blk.nonce, max_nonce, &final_nonce);
+        } else
+#endif
+        {
+            uchar hash1[64];
+	    memcpy(&hash1[0], &hash1_init[0], sizeof(hash1));
+            sha256_func func = sha256_funcs[opt_algo];
+            rc = (*func) (thr, work->midstate, work->data, hash1, work->hash,
+              work->target, max_nonce, &final_nonce, work->blk.nonce);
+        }
+
+        if(rc) {
+            applog(LOG_DEBUG, "CPU thread %d found nonce %X",
+              dev_from_id(thr_id), final_nonce);
+            submit_work_async(work, NULL);
+            /* Set a new start nonce and keep hashing */
+            work->blk.nonce = final_nonce + 1;
+        } else break;
+
+    }
+
+    if(final_nonce != first_nonce) {
+        work->blk.nonce = final_nonce + 1;
+        return(final_nonce - first_nonce + 1);
+    }
+
+    return(0);
 }
 
 struct device_api cpu_api = {

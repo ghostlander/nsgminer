@@ -4,6 +4,7 @@
  * Copyright 2010 Jeff Garzik
  * Copyright 2012 Giel van Schijndel
  * Copyright 2012 Gavin Andresen
+ * Copyright 2015 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -642,10 +643,16 @@ char *bin2hex(const unsigned char *p, size_t len)
 	if (unlikely(!s))
 		quit(1, "Failed to calloc in bin2hex");
 
-	for (i = 0; i < len; i++)
-		sprintf(s + (i * 2), "%02x", (unsigned int) p[i]);
+    for(i = 0; i < len; i++)
+      sprintf(s + (i * 2), "%02X", (uint)p[i]);
 
-	return s;
+    return(s);
+}
+
+void _bin2hex(char *s, const uchar *p, size_t len) {
+    uint i;
+    for(i = 0; i < len; i++)
+      sprintf(s + (i * 2), "%02X", (uint)p[i]);
 }
 
 /* Does the reverse of bin2hex but does not allocate any ram */
@@ -678,9 +685,7 @@ bool hex2bin(unsigned char *p, const char *hexstr, size_t len)
 		len--;
 	}
 
-	if (likely(len == 0 && *hexstr == 0))
-		ret = true;
-	return ret;
+    return(!len) ? true : false;
 }
 
 void hash_data(unsigned char *out_hash, const unsigned char *data)
@@ -692,25 +697,6 @@ void hash_data(unsigned char *out_hash, const unsigned char *data)
 	
 	// double-SHA256 to get the block hash
 	gen_hash(blkheader, out_hash, 80);
-}
-
-void real_block_target(unsigned char *target, const unsigned char *data)
-{
-	uint8_t targetshift;
-
-	if (unlikely(data[72] < 3 || data[72] > 0x20))
-	{
-		// Invalid (out of bounds) target
-		memset(target, 0xff, 32);
-		return;
-	}
-
-	targetshift = data[72] - 3;
-	memset(target, 0, targetshift);
-	target[targetshift++] = data[75];
-	target[targetshift++] = data[74];
-	target[targetshift++] = data[73];
-	memset(&target[targetshift], 0, 0x20 - targetshift);
 }
 
 bool hash_target_check(const unsigned char *hash, const unsigned char *target)
@@ -766,6 +752,37 @@ bool fulltest(const unsigned char *hash, const unsigned char *target)
 	unsigned char hash2[32];
 	swap32tobe(hash2, hash, 32 / 4);
 	return hash_target_check_v(hash2, target);
+}
+
+/* Little endian hash vs. target test for NeoScrypt */
+int fulltest_le(const uint *hash, const uint *target) {
+    uint i;
+    int rc;
+
+    for(i = 7; i >= 0; i--) {
+        if(hash[i] > target[i]) {
+            rc = 0;
+            break;
+        }
+        if(hash[i] < target[i]) {
+            rc = 1;
+            break;
+        }
+    }
+
+    if(opt_debug) {
+        uchar hash_str[65], target_str[65];
+
+        _bin2hex(hash_str, (uchar *) hash, 32);
+        _bin2hex(target_str, (uchar *) target, 32);
+
+        applog(LOG_DEBUG, "DEBUG (little endian): %s\nHash:   %sx0\nTarget: %sx0",
+          rc ? "hash <= target"
+             : "hash > target (false positive)",
+               hash_str, target_str);
+    }
+
+    return(rc);
 }
 
 struct thread_q *tq_new(void)
@@ -881,9 +898,13 @@ out:
 	return rval;
 }
 
-int thr_info_create(struct thr_info *thr, pthread_attr_t *attr, void *(*start) (void *), void *arg)
-{
-	return pthread_create(&thr->pth, attr, start, arg);
+int thr_info_create(struct thr_info *thr, pthread_attr_t *attr,
+  void *(*start) (void *), void *arg) {
+    int ret = pthread_create(&thr->pth, attr, start, arg);
+
+    if(!ret) thr->has_pth = true;
+
+    return(ret);
 }
 
 void thr_info_freeze(struct thr_info *thr)
@@ -907,15 +928,14 @@ void thr_info_freeze(struct thr_info *thr)
 	mutex_unlock(&tq->mutex);
 }
 
-void thr_info_cancel(struct thr_info *thr)
-{
-	if (!thr)
-		return;
+void thr_info_cancel(struct thr_info *thr) {
 
-	if (PTH(thr) != 0L) {
-		pthread_cancel(thr->pth);
-		PTH(thr) = 0L;
-	}
+    if(!thr) return;
+
+    if(thr->has_pth) {
+        pthread_cancel(thr->pth);
+        thr->has_pth = false;
+    }
 }
 
 /* Provide a ms based sleep that uses nanosleep to avoid poor usleep accuracy

@@ -1,3 +1,9 @@
+NSGminer v0.9.0 - 31st of December 2015
+- NeoScrypt CPU and GPU mining support implemented;
+- libblkmaker v0.5.2, libbase58 v0.1.4 and libjansson v2.7 merged;
+- many small fixes and improvements
+
+
 BFGMiner Version 2.10.14 - September 19, 2013
 
 - Only show long-poll message in pool summary if it's not using stratum.

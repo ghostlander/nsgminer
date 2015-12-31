@@ -561,42 +561,21 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	char filename[255];
 	char numbuf[32];
 
-	if (cgpu->kernel == KL_NONE) {
-		if (opt_scrypt) {
-			applog(LOG_INFO, "Selecting scrypt kernel");
-			clState->chosen_kernel = KL_SCRYPT;
-		} else if (!strstr(name, "Tahiti") &&
-			/* Detect all 2.6 SDKs not with Tahiti and use diablo kernel */
-			(strstr(vbuff, "844.4") ||  // Linux 64 bit ATI 2.6 SDK
-			 strstr(vbuff, "851.4") ||  // Windows 64 bit ""
-			 strstr(vbuff, "831.4") ||
-			 strstr(vbuff, "898.1") ||  // 12.2 driver SDK 
-			 strstr(vbuff, "923.1") ||  // 12.4
-			 strstr(vbuff, "938.2"))) { // SDK 2.7
-				applog(LOG_INFO, "Selecting diablo kernel");
-				clState->chosen_kernel = KL_DIABLO;
-		/* Detect all 7970s, older ATI and NVIDIA and use poclbm */
-		} else if (strstr(name, "Tahiti") || !clState->hasBitAlign) {
-			applog(LOG_INFO, "Selecting poclbm kernel");
-			clState->chosen_kernel = KL_POCLBM;
-		/* Use phatk for the rest R5xxx R6xxx */
-		} else {
-			applog(LOG_INFO, "Selecting phatk kernel");
-			clState->chosen_kernel = KL_PHATK;
-		}
-		cgpu->kernel = clState->chosen_kernel;
-	} else {
-		clState->chosen_kernel = cgpu->kernel;
-		if (clState->chosen_kernel == KL_PHATK &&
-		    (strstr(vbuff, "844.4") || strstr(vbuff, "851.4") ||
-		     strstr(vbuff, "831.4") || strstr(vbuff, "898.1") ||
-		     strstr(vbuff, "923.1") || strstr(vbuff, "938.2"))) {
-			applog(LOG_WARNING, "WARNING: You have selected the phatk kernel.");
-			applog(LOG_WARNING, "You are running SDK 2.6+ which performs poorly with this kernel.");
-			applog(LOG_WARNING, "Downgrade your SDK and delete any .bin files before starting again.");
-			applog(LOG_WARNING, "Or allow BFGMiner to automatically choose a more suitable kernel.");
-		}
-	}
+   if(cgpu->kernel == KL_NONE) {
+        if(opt_neoscrypt) {
+            applog(LOG_INFO, "Selecting the default NeoScrypt kernel");
+            clState->chosen_kernel = KL_NEOSCRYPT;
+        } else if(opt_scrypt) {
+            applog(LOG_INFO, "Selecting the default Scrypt kernel");
+            clState->chosen_kernel = KL_SCRYPT;
+        } else {
+            applog(LOG_INFO, "Selecting the diablo kernel");
+            clState->chosen_kernel = KL_DIABLO;
+        }
+        cgpu->kernel = clState->chosen_kernel;
+    } else {
+        clState->chosen_kernel = cgpu->kernel;
+    }
 
 	/* For some reason 2 vectors is still better even if the card says
 	 * otherwise, and many cards lie about their max so use 256 as max
@@ -619,12 +598,18 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 			strcpy(filename, DIAKGCN_KERNNAME".cl");
 			strcpy(binaryfilename, DIAKGCN_KERNNAME);
 			break;
-		case KL_SCRYPT:
-			strcpy(filename, SCRYPT_KERNNAME".cl");
-			strcpy(binaryfilename, SCRYPT_KERNNAME);
-			/* Scrypt only supports vector 1 */
-			cgpu->vwidth = 1;
-			break;
+        case(KL_NEOSCRYPT):
+            strcpy(filename, NEOSCRYPT_KERNNAME".cl");
+            strcpy(binaryfilename, NEOSCRYPT_KERNNAME);
+            /* NeoScrypt only supports vector 1 */
+            cgpu->vwidth = 1;
+            break;
+        case(KL_SCRYPT):
+            strcpy(filename, SCRYPT_KERNNAME".cl");
+            strcpy(binaryfilename, SCRYPT_KERNNAME);
+            /* Scrypt only supports vector 1 */
+            cgpu->vwidth = 1;
+            break;
 		case KL_NONE: /* Shouldn't happen */
 		case KL_DIABLO:
 			strcpy(filename, DIABLO_KERNNAME".cl");
@@ -639,9 +624,11 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		cgpu->vwidth = preferred_vwidth;
 	}
 
-	if (((clState->chosen_kernel == KL_POCLBM || clState->chosen_kernel == KL_DIABLO || clState->chosen_kernel == KL_DIAKGCN) &&
-		clState->vwidth == 1 && clState->hasOpenCL11plus) || opt_scrypt)
-			clState->goffset = true;
+    if((((clState->chosen_kernel == KL_POCLBM) ||
+      (clState->chosen_kernel == KL_DIABLO) ||
+      (clState->chosen_kernel == KL_DIAKGCN)) &&
+      (clState->vwidth == 1) && clState->hasOpenCL11plus) ||
+      opt_neoscrypt || opt_scrypt) clState->goffset = true;
 
 	if (cgpu->work_size && cgpu->work_size <= clState->max_work_size)
 		clState->wsize = cgpu->work_size;
@@ -650,6 +637,21 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	else
 		clState->wsize = (clState->max_work_size <= 256 ? clState->max_work_size : 256) / clState->vwidth;
 	cgpu->work_size = clState->wsize;
+
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        uint i;
+        cgpu->max_global_threads = (uint)(cgpu->max_alloc / 32768ULL);
+        for(i = MIN_NEOSCRYPT_INTENSITY; i <= MAX_NEOSCRYPT_INTENSITY; i++) {
+            if((1U << i) <= cgpu->max_global_threads) {
+                cgpu->max_intensity = i;
+            } else break;
+        }
+        if(cgpu->dynamic || (cgpu->intensity > cgpu->max_intensity))
+          cgpu->intensity = cgpu->max_intensity;
+        applog(LOG_DEBUG, "GPU %d: max. intensity is %u", gpu, cgpu->max_intensity);
+    }
+#endif
 
 #ifdef USE_SCRYPT
 	if (opt_scrypt) {
@@ -715,21 +717,27 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	strcat(binaryfilename, name);
 	if (clState->goffset)
 		strcat(binaryfilename, "g");
-	if (opt_scrypt) {
-#ifdef USE_SCRYPT
-		sprintf(numbuf, "lg%utc%u", cgpu->lookup_gap, (unsigned int)cgpu->thread_concurrency);
-		strcat(binaryfilename, numbuf);
+
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        /* Nothing here */
+    } else
 #endif
-	} else {
-		sprintf(numbuf, "v%d", clState->vwidth);
-		strcat(binaryfilename, numbuf);
-	}
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        sprintf(numbuf, "lg%utc%u", cgpu->lookup_gap, (uint)cgpu->thread_concurrency);
+        strcat(binaryfilename, numbuf);
+    } else
+#endif
+    {
+        sprintf(numbuf, "v%d", clState->vwidth);
+        strcat(binaryfilename, numbuf);
+    }
+
 	sprintf(numbuf, "w%d", (int)clState->wsize);
 	strcat(binaryfilename, numbuf);
 	sprintf(numbuf, "l%d", (int)sizeof(long));
 	strcat(binaryfilename, numbuf);
-	strcat(binaryfilename, "p");
-	strcat(binaryfilename, vbuff);
 	sanestr(binaryfilename, binaryfilename);
 	strcat(binaryfilename, ".bin");
 
@@ -790,17 +798,24 @@ build:
 	/* create a cl program executable for all the devices specified */
 	char *CompilerOptions = calloc(1, 256);
 
-#ifdef USE_SCRYPT
-	if (opt_scrypt)
-		sprintf(CompilerOptions, "-D LOOKUP_GAP=%d -D CONCURRENT_THREADS=%d -D WORKSIZE=%d",
-			cgpu->lookup_gap, (unsigned int)cgpu->thread_concurrency, (int)clState->wsize);
-	else
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        sprintf(CompilerOptions, "-D WORKSIZE=%d", (int)clState->wsize);
+    } else
 #endif
-	{
-		sprintf(CompilerOptions, "-D WORKSIZE=%d -D VECTORS%d -D WORKVEC=%d",
-			(int)clState->wsize, clState->vwidth, (int)clState->wsize * clState->vwidth);
-	}
-	applog(LOG_DEBUG, "Setting worksize to %"PRId64, (int64_t)clState->wsize);
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        sprintf(CompilerOptions, "-D LOOKUP_GAP=%d -D CONCURRENT_THREADS=%d -D WORKSIZE=%d",
+          cgpu->lookup_gap, (uint)cgpu->thread_concurrency, (int)clState->wsize);
+    } else
+#endif
+    {
+        sprintf(CompilerOptions, "-D WORKSIZE=%d -D VECTORS%d -D WORKVEC=%d",
+          (int)clState->wsize, clState->vwidth, (int)clState->wsize * clState->vwidth);
+    }
+
+    applog(LOG_DEBUG, "Setting work size to %d", (int)clState->wsize);
+
 	if (clState->vwidth > 1)
 		applog(LOG_DEBUG, "Patched source to suit %d vectors", clState->vwidth);
 
@@ -988,8 +1003,32 @@ built:
 		return NULL;
 	}
 
-#ifdef USE_SCRYPT
-	if (opt_scrypt) {
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        clState->padbufsize = (1U << cgpu->intensity) * 32768;
+        applog(LOG_DEBUG, "Allocating %llu bytes of global memory for NeoScrypt",
+         (ullong)clState->padbufsize);
+
+        clState->padbuffer8 = NULL;
+        clState->padbuffer8 = clCreateBuffer(clState->context, CL_MEM_READ_WRITE,
+          clState->padbufsize, NULL, &status);
+        if((status != CL_SUCCESS) && !clState->padbuffer8) {
+            applog(LOG_ERR, "Error %d: clCreateBuffer (padbuffer8) size %llu",
+              status, (ullong)clState->padbufsize);
+            return(NULL);
+        }
+
+        /* The input buffer of 80 bytes */
+        clState->CLbuffer0 = clCreateBuffer(clState->context, CL_MEM_READ_ONLY,
+          80, NULL, &status);
+        if(status != CL_SUCCESS) {
+            applog(LOG_ERR, "Error %d in clCreateBuffer (input)", status);
+            return(NULL);
+        }
+    } else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
 		size_t ipt = (1024 / cgpu->lookup_gap + (1024 % cgpu->lookup_gap > 0));
 		size_t bufsize = 128 * ipt * cgpu->thread_concurrency;
 
@@ -1018,15 +1057,19 @@ built:
 			applog(LOG_ERR, "Error %d: clCreateBuffer (CLbuffer0)", status);
 			return NULL;
 		}
-	}
+    } else
 #endif
-	clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_WRITE_ONLY, BUFFERSIZE, NULL, &status);
-	if (status != CL_SUCCESS) {
-		applog(LOG_ERR, "Error %d: clCreateBuffer (outputBuffer)", status);
-		return NULL;
-	}
+    { }
 
-	return clState;
+    clState->outputBuffer = clCreateBuffer(clState->context, CL_MEM_WRITE_ONLY,
+      BUFFERSIZE, NULL, &status);
+
+    if(status != CL_SUCCESS) {
+        applog(LOG_ERR, "Error %d in clCreateBuffer (output)", status);
+        return(NULL);
+    }
+
+    return(clState);
 }
 #endif /* HAVE_OPENCL */
 

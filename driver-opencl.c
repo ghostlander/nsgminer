@@ -2,6 +2,7 @@
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2010 Jeff Garzik
+ * Copyright 2015 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -435,9 +436,13 @@ static enum cl_kernels select_kernel(char *arg)
 		return KL_POCLBM;
 	if (!strcmp(arg, "phatk"))
 		return KL_PHATK;
-#ifdef USE_SCRYPT
-	if (!strcmp(arg, "scrypt"))
-		return KL_SCRYPT;
+#if (USE_NEOSCRYPT)
+    if(!strcmp(arg, "neoscrypt"))
+      return(KL_NEOSCRYPT);
+#endif
+#if (USE_SCRYPT)
+    if(!strcmp(arg, "scrypt"))
+      return(KL_SCRYPT);
 #endif
 	return KL_NONE;
 }
@@ -448,8 +453,9 @@ char *set_kernel(char *arg)
 	int i, device = 0;
 	char *nextptr;
 
-	if (opt_scrypt)
-		return "Cannot use sha256 kernel with scrypt";
+    if(opt_neoscrypt || opt_scrypt)
+      return("No user selectable kernel available");
+
 	nextptr = strtok(arg, ",");
 	if (nextptr == NULL)
 		return "Invalid parameters for set kernel";
@@ -736,49 +742,66 @@ char *set_temp_overheat(char *arg)
 #endif
 
 #ifdef HAVE_OPENCL
-char *set_intensity(char *arg)
-{
-	int i, device = 0, *tt;
-	char *nextptr, val = 0;
+char *set_intensity(char *arg) {
+    int min_intensity, max_intensity, i, device = 0, *tt;
+    char *nextptr, val = 0;
 
-	nextptr = strtok(arg, ",");
-	if (nextptr == NULL)
-		return "Invalid parameters for set intensity";
-	if (!strncasecmp(nextptr, "d", 1))
-		gpus[device].dynamic = true;
-	else {
-		gpus[device].dynamic = false;
-		val = atoi(nextptr);
-		if (val < MIN_INTENSITY || val > MAX_INTENSITY)
-			return "Invalid value passed to set intensity";
-		tt = &gpus[device].intensity;
-		*tt = val;
-	}
+    nextptr = strtok(arg, ",");
+    if(nextptr == NULL)
+      return("Invalid parameters for set intensity");
 
-	device++;
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        min_intensity = MIN_NEOSCRYPT_INTENSITY;
+        max_intensity = MAX_NEOSCRYPT_INTENSITY;
+    } else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        min_intensity = MIN_SCRYPT_INTENSITY;
+        max_intensity = MAX_SCRYPT_INTENSITY;
+    } else
+#endif
+    {
+        min_intensity = MIN_SHA256D_INTENSITY;
+        max_intensity = MAX_SHA256D_INTENSITY;
+    }
 
-	while ((nextptr = strtok(NULL, ",")) != NULL) {
-		if (!strncasecmp(nextptr, "d", 1))
-			gpus[device].dynamic = true;
-		else {
-			gpus[device].dynamic = false;
-			val = atoi(nextptr);
-			if (val < MIN_INTENSITY || val > MAX_INTENSITY)
-				return "Invalid value passed to set intensity";
+    if(!strncasecmp(nextptr, "d", 1)) {
+        gpus[device].dynamic = true;
+    } else {
+        gpus[device].dynamic = false;
+        val = atoi(nextptr);
+        if((val < min_intensity) || (val > max_intensity))
+          return("Invalid value passed to set intensity");
+        tt = &gpus[device].intensity;
+        *tt = val;
+    }
 
-			tt = &gpus[device].intensity;
-			*tt = val;
-		}
-		device++;
-	}
-	if (device == 1) {
-		for (i = device; i < MAX_GPUDEVICES; i++) {
-			gpus[i].dynamic = gpus[0].dynamic;
-			gpus[i].intensity = gpus[0].intensity;
-		}
-	}
+    device++;
 
-	return NULL;
+    while((nextptr = strtok(NULL, ",")) != NULL) {
+        if(!strncasecmp(nextptr, "d", 1)) {
+            gpus[device].dynamic = true;
+        } else {
+            gpus[device].dynamic = false;
+            val = atoi(nextptr);
+            if((val < min_intensity) || (val > max_intensity))
+              return("Invalid value passed to set intensity");
+            tt = &gpus[device].intensity;
+            *tt = val;
+        }
+        device++;
+    }
+
+    if(device == 1) {
+        for(i = device; i < MAX_GPUDEVICES; i++) {
+            gpus[i].dynamic = gpus[0].dynamic;
+            gpus[i].intensity = gpus[0].intensity;
+        }
+    }
+
+    return(NULL);
 }
 #endif
 
@@ -845,6 +868,26 @@ void manage_gpu(void)
 	opt_loginput = true;
 	immedok(logwin, true);
 	clear_logwin();
+
+    int min_intensity, max_intensity;
+
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        min_intensity = MIN_NEOSCRYPT_INTENSITY;
+        max_intensity = MAX_NEOSCRYPT_INTENSITY;
+    } else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        min_intensity = MIN_SCRYPT_INTENSITY;
+        max_intensity = MAX_SCRYPT_INTENSITY;
+    } else
+#endif
+    {
+        min_intensity = MIN_SHA256D_INTENSITY;
+        max_intensity = MAX_SHA256D_INTENSITY;
+    }
+
 retry:
 
 	for (gpu = 0; gpu < nDevs; gpu++) {
@@ -998,7 +1041,9 @@ retry:
 			wlogprint("Invalid selection\n");
 			goto retry;
 		}
-		intvar = curses_input("Set GPU scan intensity (d or " _MIN_INTENSITY_STR " -> " _MAX_INTENSITY_STR ")");
+
+        intvar = curses_input("Set GPU scan intensity (d or fixed number)");
+
 		if (!intvar) {
 			wlogprint("Invalid input\n");
 			goto retry;
@@ -1012,15 +1057,36 @@ retry:
 		}
 		intensity = atoi(intvar);
 		free(intvar);
-		if (intensity < MIN_INTENSITY || intensity > MAX_INTENSITY) {
-			wlogprint("Invalid selection\n");
-			goto retry;
-		}
-		gpus[selected].dynamic = false;
-		gpus[selected].intensity = intensity;
-		wlogprint("Intensity on gpu %d set to %d\n", selected, intensity);
-		pause_dynamic_threads(selected);
-		goto retry;
+
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        if((intensity < MIN_NEOSCRYPT_INTENSITY) || (intensity > gpus[selected].max_intensity)) {
+            wlogprint("Invalid selection\n");
+            goto retry;
+        }
+    } else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        if((intensity < MIN_SCRYPT_INTENSITY) || (intensity > MAX_SCRYPT_INTENSITY)) {
+            wlogprint("Invalid selection\n");
+            goto retry;
+        }
+    } else
+#endif
+    {
+        if((intensity < MIN_SHA256D_INTENSITY) || (intensity > MAX_SHA256D_INTENSITY)) {
+            wlogprint("Invalid selection\n");
+            goto retry;
+        }
+    }
+
+        gpus[selected].dynamic = false;
+        gpus[selected].intensity = intensity;
+        wlogprint("Intensity on GPU %d set to %d\n", selected, intensity);
+        pause_dynamic_threads(selected);
+        goto retry;
+
 	} else if (!strncasecmp(&input, "r", 1)) {
 		if (selected)
 			selected = curses_int("Select GPU to attempt to restart");
@@ -1271,6 +1337,28 @@ static cl_int queue_diablo_kernel(_clState *clState, dev_blk_ctx *blk, cl_uint t
 	return status;
 }
 
+#if (USE_NEOSCRYPT)
+static cl_int queue_neoscrypt_kernel(_clState *clState, dev_blk_ctx *blk,
+  __maybe_unused cl_uint threads) {
+    cl_kernel *kernel = &clState->kernel;
+    cl_uint le_target;
+    cl_int status = 0;
+    uint num = 0;
+
+    le_target = (cl_uint)le32toh(((uint *) blk->work->target)[7]);
+    clState->cldata = blk->work->data;
+    status = clEnqueueWriteBuffer(clState->commandQueue, clState->CLbuffer0,
+      true, 0, 80, clState->cldata, 0, NULL, NULL);
+
+    CL_SET_ARG(clState->CLbuffer0);
+    CL_SET_ARG(clState->outputBuffer);
+    CL_SET_ARG(clState->padbuffer8);
+    CL_SET_ARG(le_target);
+
+    return(status);
+}
+#endif
+
 #ifdef USE_SCRYPT
 static cl_int queue_scrypt_kernel(_clState *clState, dev_blk_ctx *blk, __maybe_unused cl_uint threads)
 {
@@ -1295,28 +1383,6 @@ static cl_int queue_scrypt_kernel(_clState *clState, dev_blk_ctx *blk, __maybe_u
 }
 #endif
 
-static void set_threads_hashes(unsigned int vectors,int64_t *hashes, size_t *globalThreads,
-			       unsigned int minthreads, __maybe_unused int *intensity)
-{
-	unsigned int threads = 0;
-
-	while (threads < minthreads) {
-		threads = 1 << ((opt_scrypt ? 0 : 15) + *intensity);
-		if (threads < minthreads) {
-			if (likely(*intensity < MAX_INTENSITY))
-				(*intensity)++;
-			else
-				threads = minthreads;
-		}
-	}
-
-	*globalThreads = threads;
-	*hashes = threads * vectors;
-}
-#endif /* HAVE_OPENCL */
-
-
-#ifdef HAVE_OPENCL
 /* We have only one thread that ever re-initialises GPUs, thus if any GPU
  * init command fails due to a completely wedged GPU, the thread will never
  * return, unable to harm other GPUs. If it does return, it means we only had
@@ -1462,6 +1528,11 @@ static void opencl_detect()
 	if (!nDevs)
 		return;
 
+    if(opt_neoscrypt || opt_scrypt) {
+        if(opt_g_threads == -1)
+	  opt_g_threads = 1;
+    }
+
 	for (i = 0; i < nDevs; ++i) {
 		struct cgpu_info *cgpu;
 
@@ -1557,12 +1628,13 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 	int i = thr->id;
 	static bool failmessage = false;
 
-	if (!blank_res)
-		blank_res = calloc(BUFFERSIZE, 1);
-	if (!blank_res) {
-		applog(LOG_ERR, "Failed to calloc in opencl_thread_init");
-		return false;
-	}
+    if(!blank_res)
+      blank_res = calloc(BUFFERSIZE, 1);
+
+    if(!blank_res) {
+        applog(LOG_ERR, "Allocation failed in opencl_thread_prepare()");
+        return(false);
+    }
 
 	strcpy(name, "");
 	applog(LOG_INFO, "Init GPU thread %i GPU %i virtual GPU %i", i, gpu, virtual_gpu);
@@ -1595,30 +1667,36 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 	}
 	if (!cgpu->name)
 		cgpu->name = strdup(name);
-	if (!cgpu->kname)
-	{
-		switch (clStates[i]->chosen_kernel) {
-			case KL_DIABLO:
-				cgpu->kname = "diablo";
-				break;
-			case KL_DIAKGCN:
-				cgpu->kname = "diakgcn";
-				break;
-			case KL_PHATK:
-				cgpu->kname = "phatk";
-				break;
-#ifdef USE_SCRYPT
-			case KL_SCRYPT:
-				cgpu->kname = "scrypt";
-				break;
+
+    if(!cgpu->kname) {
+        switch(clStates[i]->chosen_kernel) {
+	    case(KL_DIABLO):
+                cgpu->kname = "diablo";
+                break;
+            case(KL_DIAKGCN):
+                cgpu->kname = "diakgcn";
+                break;
+            case(KL_PHATK):
+                cgpu->kname = "phatk";
+                break;
+            case(KL_POCLBM):
+                cgpu->kname = "poclbm";
+                break;
+#if (USE_NEOSCRYPT)
+            case(KL_NEOSCRYPT):
+                cgpu->kname = "neoscrypt";
+                break;
 #endif
-			case KL_POCLBM:
-				cgpu->kname = "poclbm";
-				break;
-			default:
-				break;
-		}
-	}
+#if (USE_SCRYPT)
+            case(KL_SCRYPT):
+                cgpu->kname = "scrypt";
+                break;
+#endif
+            default:
+                break;
+        }
+    }
+
 	applog(LOG_INFO, "initCl() finished. Found %s", name);
 	gettimeofday(&now, NULL);
 	get_datestamp(cgpu->init, &now);
@@ -1643,41 +1721,47 @@ static bool opencl_thread_init(struct thr_info *thr)
 		return false;
 	}
 
-	switch (clState->chosen_kernel) {
-		case KL_POCLBM:
-			thrdata->queue_kernel_parameters = &queue_poclbm_kernel;
-			break;
-		case KL_PHATK:
-			thrdata->queue_kernel_parameters = &queue_phatk_kernel;
-			break;
-		case KL_DIAKGCN:
-			thrdata->queue_kernel_parameters = &queue_diakgcn_kernel;
-			break;
-#ifdef USE_SCRYPT
-		case KL_SCRYPT:
-			thrdata->queue_kernel_parameters = &queue_scrypt_kernel;
-			break;
+    switch(clState->chosen_kernel) {
+        default:
+        case(KL_DIABLO):
+            thrdata->queue_kernel_parameters = &queue_diablo_kernel;
+            break;
+        case(KL_DIAKGCN):
+            thrdata->queue_kernel_parameters = &queue_diakgcn_kernel;
+            break;
+        case(KL_PHATK):
+            thrdata->queue_kernel_parameters = &queue_phatk_kernel;
+            break;
+        case(KL_POCLBM):
+            thrdata->queue_kernel_parameters = &queue_poclbm_kernel;
+            break;
+#if (USE_NEOSCRYPT)
+        case(KL_NEOSCRYPT):
+            thrdata->queue_kernel_parameters = &queue_neoscrypt_kernel;
+            break;
 #endif
-		default:
-		case KL_DIABLO:
-			thrdata->queue_kernel_parameters = &queue_diablo_kernel;
-			break;
-	}
+#if (USE_SCRYPT)
+        case(KL_SCRYPT):
+            thrdata->queue_kernel_parameters = &queue_scrypt_kernel;
+            break;
+#endif
+    }
 
-	thrdata->res = calloc(BUFFERSIZE, 1);
+    thrdata->res = calloc(BUFFERSIZE, 1);
 
-	if (!thrdata->res) {
-		free(thrdata);
-		applog(LOG_ERR, "Failed to calloc in opencl_thread_init");
-		return false;
-	}
+    if(!thrdata->res) {
+        applog(LOG_ERR, "Allocation failed in opencl_thread_init()");
+        free(thrdata);
+	return(false);
+    }
 
-	status |= clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_TRUE, 0,
-			BUFFERSIZE, blank_res, 0, NULL, NULL);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed.");
-		return false;
-	}
+    status |= clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer,
+      CL_TRUE, 0, BUFFERSIZE, blank_res, 0, NULL, NULL);
+
+    if(status != CL_SUCCESS) {
+        applog(LOG_ERR, "Error %d in clEnqueueWriteBuffer()", status);
+        return(false);
+    }
 
 	gpu->status = LIFE_WELL;
 
@@ -1687,15 +1771,14 @@ static bool opencl_thread_init(struct thr_info *thr)
 }
 
 
-static bool opencl_prepare_work(struct thr_info __maybe_unused *thr, struct work *work)
-{
-#ifdef USE_SCRYPT
-	if (opt_scrypt)
-		work->blk.work = work;
-	else
-#endif
-		precalc_hash(&work->blk, (uint32_t *)(work->midstate), (uint32_t *)(work->data + 64));
-	return true;
+static bool opencl_prepare_work(struct thr_info __maybe_unused *thr, struct work *work) {
+
+    if(opt_neoscrypt || opt_scrypt)
+      work->blk.work = work;
+    else
+      precalc_hash(&work->blk, (uint32_t *) work->midstate, (uint32_t *) (work->data + 64));
+
+    return(true);
 }
 
 extern int opt_dynamic_interval;
@@ -1715,80 +1798,124 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	size_t localThreads[1] = { clState->wsize };
 	int64_t hashes;
 
-	/* Windows' timer resolution is only 15ms so oversample 5x */
-	if (gpu->dynamic && (++gpu->intervals * dynamic_us) > 70000) {
-		struct timeval tv_gpuend;
-		double gpu_us;
+    int min_intensity, max_intensity;
 
-		gettimeofday(&tv_gpuend, NULL);
-		gpu_us = us_tdiff(&tv_gpuend, &gpu->tv_gpustart) / gpu->intervals;
-		if (gpu_us > dynamic_us) {
-			if (gpu->intensity > MIN_INTENSITY)
-				--gpu->intensity;
-		} else if (gpu_us < dynamic_us / 2) {
-			if (gpu->intensity < MAX_INTENSITY)
-				++gpu->intensity;
-		}
-		memcpy(&(gpu->tv_gpustart), &tv_gpuend, sizeof(struct timeval));
-		gpu->intervals = 0;
-	}
+#if (USE_NEOSCRYPT)
+    if(opt_neoscrypt) {
+        min_intensity = MIN_NEOSCRYPT_INTENSITY;
+        max_intensity = MAX_NEOSCRYPT_INTENSITY;
+    } else
+#endif
+#if (USE_SCRYPT)
+    if(opt_scrypt) {
+        min_intensity = MIN_SCRYPT_INTENSITY;
+        max_intensity = MAX_SCRYPT_INTENSITY;
+    } else
+#endif
+    {
+        min_intensity = MIN_SHA256D_INTENSITY;
+        max_intensity = MAX_SHA256D_INTENSITY;
+    }
 
-	set_threads_hashes(clState->vwidth, &hashes, globalThreads, localThreads[0], &gpu->intensity);
-	if (hashes > gpu->max_hashes)
-		gpu->max_hashes = hashes;
+    /* Windows timer resolution is only 15.6ms, so oversample 5x */
+    if(gpu->dynamic && (++gpu->intervals * dynamic_us) > 78000) {
+        struct timeval tv_gpuend;
+        double gpu_us;
 
-	status = thrdata->queue_kernel_parameters(clState, &work->blk, globalThreads[0]);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clSetKernelArg of all params failed.");
-		return -1;
-	}
+        gettimeofday(&tv_gpuend, NULL);
+        gpu_us = us_tdiff(&tv_gpuend, &gpu->tv_gpustart) / gpu->intervals;
 
-	if (clState->goffset) {
-		size_t global_work_offset[1];
+        if(gpu_us > dynamic_us) {
+            if(gpu->intensity > min_intensity)
+              --gpu->intensity;
+        } else {
+            if(gpu_us < dynamic_us / 2) {
+                if(gpu->intensity < (opt_neoscrypt ? gpu->max_intensity : max_intensity))
+                  ++gpu->intensity;
+            }
+        }
+        memcpy(&(gpu->tv_gpustart), &tv_gpuend, sizeof(struct timeval));
+        gpu->intervals = 0;
+    }
 
-		global_work_offset[0] = work->blk.nonce;
-		status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1, global_work_offset,
-						globalThreads, localThreads, 0,  NULL, NULL);
-	} else
-		status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1, NULL,
-						globalThreads, localThreads, 0,  NULL, NULL);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error %d: Enqueueing kernel onto command queue. (clEnqueueNDRangeKernel)", status);
-		return -1;
-	}
+    uint threads = 0;
+    while(threads < localThreads[0]) {
+        threads = 1 << (((opt_neoscrypt || opt_scrypt) ? 0 : 15) + gpu->intensity);
+        if(threads < localThreads[0]) {
+            if(gpu->intensity < (opt_neoscrypt ? gpu->max_intensity : max_intensity)) {
+                gpu->intensity++;
+            } else {
+                threads = localThreads[0];
+            }
+        }
+    }
+    globalThreads[0] = threads;
+    hashes = threads * clState->vwidth;
 
-	status = clEnqueueReadBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
-			BUFFERSIZE, thrdata->res, 0, NULL, NULL);
-	if (unlikely(status != CL_SUCCESS)) {
-		applog(LOG_ERR, "Error: clEnqueueReadBuffer failed error %d. (clEnqueueReadBuffer)", status);
-		return -1;
-	}
+    /* Update the statistics */
+    if(hashes > gpu->max_hashes)
+      gpu->max_hashes = hashes;
+
+    status = thrdata->queue_kernel_parameters(clState, &work->blk, globalThreads[0]);
+
+    if(status != CL_SUCCESS) {
+        applog(LOG_ERR, "Error %d in clSetKernelArg()", status);
+        return(-1);
+    }
+
+    if(clState->goffset) {
+        size_t global_work_offset[1];
+
+        global_work_offset[0] = work->blk.nonce;
+        status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1,
+          global_work_offset, globalThreads, localThreads, 0,  NULL, NULL);
+    } else {
+        status = clEnqueueNDRangeKernel(clState->commandQueue, *kernel, 1,
+          NULL, globalThreads, localThreads, 0,  NULL, NULL);
+    }
+
+    if(status != CL_SUCCESS) {
+        applog(LOG_ERR, "Error %d in clEnqueueNDRangeKernel()", status);
+        return(-1);
+    }
+
+    status = clEnqueueReadBuffer(clState->commandQueue, clState->outputBuffer,
+      CL_FALSE, 0, BUFFERSIZE, thrdata->res, 0, NULL, NULL);
+
+    if(status != CL_SUCCESS) {
+        applog(LOG_ERR, "Error %d in clEnqueueReadBuffer()", status);
+        return(-1);
+    }
 
 	/* The amount of work scanned can fluctuate when intensity changes
 	 * and since we do this one cycle behind, we increment the work more
 	 * than enough to prevent repeating work */
 	work->blk.nonce += gpu->max_hashes;
 
-	/* This finish flushes the readbuffer set with CL_FALSE in clEnqueueReadBuffer */
-	clFinish(clState->commandQueue);
+    /* Flush the read buffer set with CL_FALSE in clEnqueueReadBuffer */
+    clFinish(clState->commandQueue);
 
-	/* FOUND entry is used as a counter to say how many nonces exist */
-	if (thrdata->res[FOUND]) {
-		/* Clear the buffer again */
-		status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer, CL_FALSE, 0,
-				BUFFERSIZE, blank_res, 0, NULL, NULL);
-		if (unlikely(status != CL_SUCCESS)) {
-			applog(LOG_ERR, "Error: clEnqueueWriteBuffer failed.");
-			return -1;
-		}
-		applog(LOG_DEBUG, "GPU %d found something?", gpu->device_id);
-		postcalc_hash_async(thr, work, thrdata->res);
-		memset(thrdata->res, 0, BUFFERSIZE);
-		/* This finish flushes the writebuffer set with CL_FALSE in clEnqueueWriteBuffer */
-		clFinish(clState->commandQueue);
-	}
+    /* Algorithm dependent FOUND entry is used as a nonce counter */
+    if(thrdata->res[FOUND]) {
 
-	return hashes;
+        /* Clear the buffer again */
+        status = clEnqueueWriteBuffer(clState->commandQueue, clState->outputBuffer,
+          CL_FALSE, 0, BUFFERSIZE, blank_res, 0, NULL, NULL);
+
+        if(status != CL_SUCCESS) {
+            applog(LOG_ERR, "Error %d in clEnqueueWriteBuffer()", status);
+            return(-1);
+        }
+
+        applog(LOG_DEBUG, "GPU%d found something?", gpu->device_id);
+        postcalc_hash_async(thr, work, thrdata->res);
+        memset(thrdata->res, 0, BUFFERSIZE);
+
+        /* Flush the write buffer set with CL_FALSE in clEnqueueWriteBuffer */
+        clFinish(clState->commandQueue);
+    }
+
+    return(hashes);
 }
 
 static void opencl_thread_shutdown(struct thr_info *thr)

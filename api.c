@@ -506,7 +506,7 @@ struct CODES {
  { SEVERITY_ERR,   MSG_MISVAL,	PARAM_NONE,	"Missing comma after GPU number" },
  { SEVERITY_ERR,   MSG_NOADL,	PARAM_NONE,	"ADL is not available" },
  { SEVERITY_ERR,   MSG_NOGPUADL,PARAM_GPU,	"GPU %d does not have ADL" },
- { SEVERITY_ERR,   MSG_INVINT,	PARAM_STR,	"Invalid intensity (%s) - must be '" _DYNAMIC  "' or range " _MIN_INTENSITY_STR " - " _MAX_INTENSITY_STR },
+ { SEVERITY_ERR,   MSG_INVINT,	PARAM_STR,	"Invalid intensity (%s) - must be '" _DYNAMIC  "' or fixed number within range" },
  { SEVERITY_INFO,  MSG_GPUINT,	PARAM_BOTH,	"GPU %d set new intensity to %s" },
  { SEVERITY_SUCC,  MSG_MINECONFIG,PARAM_NONE,	"BFGMiner config" },
 #ifdef HAVE_OPENCL
@@ -2458,33 +2458,48 @@ static bool splitgpuvalue(struct io_data *io_data, char *param, int *gpu, char *
 	return true;
 }
 
-static void gpuintensity(struct io_data *io_data, __maybe_unused SOCKETTYPE c, char *param, bool isjson, __maybe_unused char group)
-{
-	int id;
-	char *value;
-	int intensity;
-	char intensitystr[7];
+static void gpuintensity(struct io_data *io_data, __maybe_unused SOCKETTYPE c,
+  char *param, bool isjson, __maybe_unused char group) {
+    int id, intensity, min_intensity, max_intensity;
+    char *value, intensitystr[7];
 
-	if (!splitgpuvalue(io_data, param, &id, &value, isjson))
-		return;
+    if(!splitgpuvalue(io_data, param, &id, &value, isjson))
+      return;
 
-	if (!strncasecmp(value, DYNAMIC, 1)) {
-		gpus[id].dynamic = true;
-		strcpy(intensitystr, DYNAMIC);
-	}
-	else {
-		intensity = atoi(value);
-		if (intensity < MIN_INTENSITY || intensity > MAX_INTENSITY) {
-			message(io_data, MSG_INVINT, 0, value, isjson);
-			return;
-		}
+    if(!strncasecmp(value, DYNAMIC, 1)) {
+        gpus[id].dynamic = true;
+        strcpy(intensitystr, DYNAMIC);
+    } else {
+        intensity = atoi(value);
 
-		gpus[id].dynamic = false;
-		gpus[id].intensity = intensity;
-		sprintf(intensitystr, "%d", intensity);
-	}
+#if (USE_NEOSCRYPT)
+        if(opt_neoscrypt) {
+            min_intensity = MIN_NEOSCRYPT_INTENSITY;
+            max_intensity = MAX_NEOSCRYPT_INTENSITY;
+        } else
+#endif
+#if (USE_SCRYPT)
+        if(opt_scrypt) {
+            min_intensity = MIN_SCRYPT_INTENSITY;
+            max_intensity = MAX_SCRYPT_INTENSITY;
+        } else
+#endif
+        {
+            min_intensity = MIN_SHA256D_INTENSITY;
+            max_intensity = MAX_SHA256D_INTENSITY;
+        }
 
-	message(io_data, MSG_GPUINT, id, intensitystr, isjson);
+        if((intensity < min_intensity) || (intensity > max_intensity)) {
+            message(io_data, MSG_INVINT, 0, value, isjson);
+            return;
+        }
+
+        gpus[id].dynamic = false;
+        gpus[id].intensity = intensity;
+        sprintf(intensitystr, "%d", intensity);
+    }
+
+    message(io_data, MSG_GPUINT, id, intensitystr, isjson);
 }
 
 static void gpumem(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __maybe_unused char *param, bool isjson, __maybe_unused char group)

@@ -19,7 +19,6 @@
 
 #include "findnonce.h"
 #include "miner.h"
-#include "scrypt.h"
 
 const uint32_t SHA256_K[64] = {
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
@@ -160,12 +159,13 @@ static void *postcalc_hash(void *userdata)
 		pcd->res[FOUND] &= FOUND;
 	}
 
-	for (entry = 0; entry < pcd->res[FOUND]; entry++) {
-		uint32_t nonce = pcd->res[entry];
+    for(entry = 0; entry < pcd->res[FOUND]; entry++) {
+        uint nonce = pcd->res[entry];
 
-		applog(LOG_DEBUG, "OCL NONCE %u found in slot %d", nonce, entry);
-		submit_nonce(thr, &pcd->work, nonce);
-	}
+        applog(LOG_DEBUG, "OCL nonce 0x%08X found in slot %d", nonce, entry);
+
+        submit_nonce(thr, &pcd->work, nonce);
+    }
 
 	clean_work(&pcd->work);
 	free(pcd);

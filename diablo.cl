@@ -1242,7 +1242,7 @@ void search(
     
     ZA[924] = (ZCh(ZA[922], ZA[920], ZA[918]) + ZA[923]) + ZR26(ZA[922]);
     
-#define FOUND (0x0F)
+#define FOUND (0xFF)
 #define SETFOUND(Xnonce) output[output[FOUND]++] = Xnonce
 
 #if defined(VECTORS4)
