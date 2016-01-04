@@ -1,6 +1,7 @@
 /*
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2012-2013 Luke Dashjr
+ * Copyright 2016 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -19,6 +20,9 @@
 bool opt_debug = false;
 bool opt_debug_console = false;  // Only used if opt_debug is also enabled
 bool opt_log_output = false;
+
+uint last_day = 0;
+bool opt_log_show_date = false;
 
 /* per default priorities higher than LOG_NOTICE are logged */
 int opt_log_level = LOG_NOTICE;
@@ -105,14 +109,17 @@ static void log_generic(int prio, const char *fmt, va_list ap)
 
 		len = 40 + strlen(fmt) + 22;
 		f = alloca(len);
-		sprintf(f, " [%d-%02d-%02d %02d:%02d:%02d] %s\n",
-			tm->tm_year + 1900,
-			tm->tm_mon + 1,
-			tm->tm_mday,
-			tm->tm_hour,
-			tm->tm_min,
-			tm->tm_sec,
-			fmt);
+
+        if(opt_log_show_date || (last_day != tm->tm_mday)) {
+            last_day = tm->tm_mday;
+            sprintf(f, "[%d-%02d-%02d %02d:%02d:%02d] %s\n",
+              tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+              tm->tm_hour, tm->tm_min, tm->tm_sec, fmt);
+        } else {
+            sprintf(f, "[%02d:%02d:%02d] %s\n",
+              tm->tm_hour, tm->tm_min, tm->tm_sec, fmt);
+        }
+
 		/* Only output to stderr if it's not going to the screen as well */
 		if (writetofile) {
 			va_list apc;
