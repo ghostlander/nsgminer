@@ -4,7 +4,7 @@ dnl * Copyright 2010-2011 Jeff Garzik
 dnl * Copyright 2012 Xiangfu
 dnl * Copyright 2011 Rusty Russell
 dnl * Copyright 2011 Mark Crichton
-dnl * Copyright 2015 John Doering
+dnl * Copyright 2015-2016 John Doering
 dnl *
 dnl * This program is free software; you can redistribute it and/or modify it
 dnl * under the terms of the GNU General Public License as published by the Free
@@ -15,7 +15,7 @@ dnl * any later version.  See COPYING for more details.
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [0])
 m4_define([v_min], [9])
-m4_define([v_mic], [0])
+m4_define([v_mic], [1])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_ver], [v_maj.v_min.v_mic])
 m4_define([lt_rev], m4_eval(v_maj + v_min))

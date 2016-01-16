@@ -3,7 +3,7 @@
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2012-2013 Andrew Smith
  * Copyright 2010 Jeff Garzik
- * Copyright 2015 John Doering
+ * Copyright 2015-2016 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -258,10 +258,9 @@ const
 #endif
 bool curses_active;
 
-static char current_block[40];
-static char *current_hash;
+static char current_block[20];
+static char current_hash[40];
 static uint32_t current_block_id;
-char *current_fullhash;
 static char datestamp[40];
 static char blocktime[32];
 struct timeval block_timeval;
@@ -275,7 +274,7 @@ static uint32_t known_blkheight;
 static uint32_t known_blkheight_blkid;
 
 struct block {
-	char hash[40];
+    char hash[20];
 	UT_hash_handle hh;
 	int block_no;
 };
@@ -1073,7 +1072,7 @@ static struct opt_table opt_config_table[] = {
 		     "Allow API access only to the given list of [G:]IP[/Prefix] addresses[/subnets]"),
 	OPT_WITH_ARG("--api-description",
 		     set_api_description, NULL, NULL,
-		     "Description placed in the API status header, default: BFGMiner version"),
+		     "Description placed in the API status header, default: miner version"),
 	OPT_WITH_ARG("--api-groups",
 		     set_api_groups, NULL, NULL,
 		     "API one letter groups G:cmd:cmd[,P:cmd:*...] defining the cmds a groups can use"),
@@ -1099,7 +1098,7 @@ static struct opt_table opt_config_table[] = {
 		     "Change multipool strategy from failover to even share balance"),
 	OPT_WITHOUT_ARG("--benchmark",
 			opt_set_bool, &opt_benchmark,
-			"Run BFGMiner in benchmark mode - produces no shares"),
+			"Run the miner in benchmark mode - produces no shares"),
 #if defined(USE_BITFORCE)
 	OPT_WITHOUT_ARG("--bfl-range",
 			opt_set_bool, &opt_bfl_noncerange,
@@ -1577,9 +1576,6 @@ static void load_default_config(void)
 	char *dirp = cnfbuf + strlen(cnfbuf);
 	strcpy(dirp, ".nsgminer/");
 	strcat(dirp, def_conf);
-	if (access(cnfbuf, R_OK))
-		// No BFGMiner config, try Cgminer's...
-		strcpy(dirp, ".cgminer/cgminer.conf");
 #else
 	strcpy(cnfbuf, "");
 	strcat(cnfbuf, def_conf);
@@ -1734,29 +1730,18 @@ void free_work(struct work *work)
 static char *workpadding = "000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000";
 
 // Must only be called with ch_lock held!
-static
-void __update_block_title(const unsigned char *hash_swap)
-{
-	char *tmp;
-	if (hash_swap) {
-		// Only provided when the block has actually changed
-		free(current_hash);
-		current_hash = malloc(3 /* ... */ + 16 /* block hash segment */ + 1);
-		tmp = bin2hex(&hash_swap[24], 8);
-		sprintf(current_hash, "...%s", tmp);
-		free(tmp);
-		known_blkheight_current = false;
-	} else if (likely(known_blkheight_current)) {
-		return;
-	}
-	if (current_block_id == known_blkheight_blkid) {
-		// FIXME: The block number will overflow this sometime around AD 2025-2027
-		if (known_blkheight < 1000000) {
-			memmove(&current_hash[3], &current_hash[11], 8);
-			sprintf(&current_hash[11], " #%6u", known_blkheight);
-		}
-		known_blkheight_current = true;
-	}
+static void __update_block_title(const ullong hash_head) {
+
+    if(hash_head) {
+        sprintf(&current_hash[0], "0x%016llX...", hash_head);
+        known_blkheight_current = false;
+    } else if(known_blkheight_current) return;
+
+    if(current_block_id == known_blkheight_blkid) {
+        sprintf(&current_hash[21], " #%u", known_blkheight);
+        known_blkheight_current = true;
+    }
+
 }
 
 static
@@ -1768,8 +1753,8 @@ void have_block_height(uint32_t block_id, uint32_t blkheight)
 	mutex_lock(&ch_lock);
 	known_blkheight = blkheight;
 	known_blkheight_blkid = block_id;
-	if (block_id == current_block_id)
-		__update_block_title(NULL);
+    if(block_id == current_block_id)
+      __update_block_title(0);
 	mutex_unlock(&ch_lock);
 }
 
@@ -1904,7 +1889,13 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
 
 	if ( (tmp_val = json_object_get(res_val, "height")) ) {
 		uint32_t blkheight = json_number_value(tmp_val);
-		uint32_t block_id = ((uint32_t*)work->data)[1];
+
+        uint block_id;
+        if(opt_neoscrypt)
+          block_id = le32toh(((uint *) work->data)[1]);
+        else
+          block_id = be32toh(((uint *) work->data)[1]);
+
 		have_block_height(block_id, blkheight);
 	}
 
@@ -2304,15 +2295,9 @@ static void curses_print_status(void)
 	mvwhline(statuswin, 1, 0, '-', 80);
 	mvwprintw(statuswin, 2, 0, " %s", statusline);
 	wclrtoeol(statuswin);
-	mvwprintw(statuswin, 3, 0, " ST: %d  DW: %d  GW: %d  LW: %d  GF: %d  NB: %d  AS: %d  RF: %d  E: %.2f",
-		__total_staged(), total_discarded,
-		total_getworks,
-		local_work,
-		total_go,
-		new_blocks,
-		total_submitting,
-		total_ro,
-		efficiency);
+    mvwprintw(statuswin, 3, 0, " ST:%d  DW:%d  GW:%d  LW:%d  GF:%d  NB:%d  AS:%d  RF:%d  E:%.2f",
+      __total_staged(), total_discarded, total_getworks, local_work, total_go,
+      new_blocks, total_submitting, total_ro, efficiency);
 	wclrtoeol(statuswin);
 	if ((pool_strategy == POOL_LOADBALANCE  || pool_strategy == POOL_BALANCE) && total_pools > 1) {
 		mvwprintw(statuswin, 4, 0, " Connected to multiple pools with%s LP",
@@ -2325,8 +2310,8 @@ static void curses_print_status(void)
           pool->sockaddr_url, pool->diff, have_longpoll ? "": "out", pool->rpc_user);
 	}
 	wclrtoeol(statuswin);
-	mvwprintw(statuswin, 5, 0, " Block: %s  Diff:%s  Started: %s  Best share: %s   ",
-		  current_hash, block_diff, blocktime, best_share);
+    mvwprintw(statuswin, 5, 0, " Block: %s %s  Diff:%s  Best:%s",
+      current_hash, blocktime, block_diff, best_share);
 	mvwhline(statuswin, 6, 0, '-', 80);
 	mvwhline(statuswin, statusy - 1, 0, '-', 80);
 	mvwprintw(statuswin, devcursor - 1, 1, "[P]ool management %s[S]ettings [D]isplay options [Q]uit",
@@ -2385,12 +2370,9 @@ static void curses_print_devstatus(int thr_id)
 	else
 		wprintw(statuswin, "               | ");
 
-	ti_hashrate_bufstr(
-		(char*[]){cHr, aHr, uHr},
-		1e6*cgpu->rolling,
-		1e6*cgpu->total_mhashes / total_secs,
-		utility_to_hashrate(cgpu->utility_diff1),
-		H2B_SHORT);
+    ti_hashrate_bufstr((char *[]) {cHr, aHr, uHr},
+      1e6 * cgpu->rolling, 1e6 * cgpu->total_mhashes / total_secs,
+      utility_to_hashrate(cgpu->utility_diff1), H2B_SPACED);
 
 	if (cgpu->status == LIFE_DEAD)
 		wprintw(statuswin, "DEAD ");
@@ -2411,7 +2393,7 @@ static void curses_print_devstatus(int thr_id)
 	adj_width(cgpu->hw_errors, &hwwidth);
 	adj_width(cgpu->utility, &uwidth);
 
-    wprintw(statuswin, " %s %s | A:%*d R:%*d HW:%*d U:%*.2f/m",
+    wprintw(statuswin, " %s %s | A:%*d R:%*d HW:%*d U:%*.1f/m",
       aHr, uHr,
       awidth, cgpu->accepted,
       rwidth, cgpu->rejected,
@@ -2782,9 +2764,8 @@ static bool submit_upstream_work_completed(struct work *work, bool resubmit, str
 	err = json_object_get(val, "error");
 
     if(!QUIET) {
-        char outhash[17];
-        ullong *shash = (ullong *) &work->hash[24];
-        ullong hashdata = le64toh(shash[0]);
+        char outhash[20];
+        ullong hashdata = le64toh(((ullong *) work->hash)[3]);
         _bin2hex((char *) &outhash[0], (uchar *) &hashdata, 8);
 
         sprintf(hashshow, "%sx0 Diff %.3f/%.3f%s", outhash, share_diff(work),
@@ -3590,13 +3571,17 @@ static bool stale_work(struct work *work, bool share)
 {
 	unsigned work_expiry;
 	struct pool *pool;
-	uint32_t block_id;
 	unsigned getwork_delay;
 
 	if (opt_benchmark)
 		return false;
 
-	block_id = ((uint32_t*)work->data)[1];
+    uint block_id;
+    if(opt_neoscrypt)
+      block_id = le32toh(((uint *) work->data)[1]);
+    else
+      block_id = be32toh(((uint *) work->data)[1]);
+
 	pool = work->pool;
 
 	/* Technically the rolltime should be correct but some pools
@@ -4405,37 +4390,31 @@ static void restart_threads(void)
 	mutex_unlock(&restart_lock);
 }
 
-static char *blkhashstr(unsigned char *hash)
-{
-	unsigned char hash_swap[32];
-	swap256(hash_swap, hash);
-	swap32tole(hash_swap, hash_swap, 32 / 4);
-	return bin2hex(hash_swap, 32);
-}
+static void set_curblock(uchar *data, char *hexstr,
+  const ullong hash_head, const uint block_id) {
+    uint hash[8];
+    uint i;
 
-static void set_curblock(char *hexstr, unsigned char *hash)
-{
-	unsigned char hash_swap[32];
-	char *old_hash;
+    if(opt_neoscrypt) {
+        for(i = 0; i < 8; i++)
+          hash[i] = le32toh(((uint *) data)[i + 1]);
+    } else {
+        for(i = 0; i < 8; i++)
+          hash[i] = be32toh(((uint *) data)[i + 1]);
+    }
 
-	current_block_id = ((uint32_t*)hash)[0];
-	strcpy(current_block, hexstr);
-	swap256(hash_swap, hash);
-	swap32tole(hash_swap, hash_swap, 32 / 4);
+    current_block_id = block_id;
+    strcpy(current_block, hexstr);
 
-	/* Don't free current_hash directly to avoid dereferencing when read
-	 * elsewhere - and update block_timeval inside the same lock */
-	mutex_lock(&ch_lock);
-	gettimeofday(&block_timeval, NULL);
-	__update_block_title(hash_swap);
-	old_hash = current_fullhash;
-	current_fullhash = bin2hex(hash_swap, 32);
-	free(old_hash);
-	mutex_unlock(&ch_lock);
+    mutex_lock(&ch_lock);
+    gettimeofday(&block_timeval, NULL);
+    __update_block_title(hash_head);
+    _bin2hex(current_fullhash, (uchar *) hash, 32);
+    mutex_unlock(&ch_lock);
 
-	get_timestamp(blocktime, &block_timeval);
+    get_timestamp(blocktime, &block_timeval);
 
-	applog(LOG_INFO, "New block: %s diff %s", current_hash, block_diff);
+    applog(LOG_INFO, "New block 0x%016llX diff %s", hash_head, block_diff);
 }
 
 /* Search to see if this string is from a block that has been seen before */
@@ -4493,17 +4472,31 @@ static void set_block_diff(const struct work *work) {
 static bool test_work_current(struct work *work)
 {
 	bool ret = true;
-	char *hexstr;
 
 	if (work->mandatory)
 		return ret;
 
-	uint32_t block_id = ((uint32_t*)(work->data))[1];
+    uint i, temp, block_id;
+    ullong hash_head;
 
-	/* Hack to work around dud work sneaking into test */
-	hexstr = bin2hex(work->data + 8, 18);
-	if (!strncmp(hexstr, "000000000000000000000000000000000000", 36))
-		goto out_free;
+    /* Real work comes with non-zero previous block hash */
+    for(temp = 0, i = 1; i < 9; i++)
+      temp += ((uint *) work->data)[i];
+    if(!temp) return(ret);
+
+    if(opt_neoscrypt) {
+        hash_head  = (ullong)le32toh(((uint *) work->data)[8]) << 32;
+        hash_head |= (ullong)le32toh(((uint *) work->data)[7]);
+        block_id = le32toh(((uint *) work->data)[1]);
+    } else {
+        hash_head  = (ullong)be32toh(((uint *) work->data)[8]) << 32;
+        hash_head |= (ullong)be32toh(((uint *) work->data)[7]);
+        block_id = be32toh(((uint *) work->data)[1]);
+    }
+
+    /* Not very elegant, though works */
+    char hexstr[20];
+    _bin2hex(hexstr, work->data + 4, 8);
 
 	/* Search to see if this block exists yet and if not, consider it a
 	 * new block and set the current block details to this one */
@@ -4516,11 +4509,10 @@ static bool test_work_current(struct work *work)
 			quit (1, "test_work_current OOM");
 		strcpy(s->hash, hexstr);
 		s->block_no = new_blocks++;
-		wr_lock(&blk_lock);
-		/* Only keep the last hour's worth of blocks in memory since
-		 * work from blocks before this is virtually impossible and we
-		 * want to prevent memory usage from continually rising */
-		if (HASH_COUNT(blocks) > 6) {
+
+        wr_lock(&blk_lock);
+        /* 15 blocks of history */
+        if(HASH_COUNT(blocks) > 15) {
 			struct block *oldblock;
 
 			HASH_SORT(blocks, block_sort);
@@ -4530,29 +4522,33 @@ static bool test_work_current(struct work *work)
 			free(oldblock);
 		}
 		HASH_ADD_STR(blocks, hash, s);
-            set_block_diff(work);
-		wr_unlock(&blk_lock);
+        set_block_diff(work);
+        wr_unlock(&blk_lock);
+
 		work->pool->block_id = block_id;
 		if (deleted_block)
 			applog(LOG_DEBUG, "Deleted block %d from database", deleted_block);
 #if BLKMAKER_VERSION > 1
 		template_nonce = 0;
 #endif
-		set_curblock(hexstr, &work->data[4]);
-		if (unlikely(new_blocks == 1))
-			goto out_free;
 
-		if (!work->stratum) {
-			if (work->longpoll) {
-				applog(LOG_NOTICE, "LONGPOLL from pool %d detected new block",
-				       work->pool->pool_no);
-			} else if (have_longpoll)
-				applog(LOG_NOTICE, "New block detected on network before longpoll");
-			else
-				applog(LOG_NOTICE, "New block detected on network");
-		}
-		restart_threads();
-	} else {
+        set_curblock(work->data, hexstr, hash_head, block_id);
+
+        if(new_blocks == 1)
+          return(ret);
+
+        if(!work->stratum) {
+            if(work->longpoll) {
+                applog(LOG_NOTICE, "LP from pool %d detected a new block 0x%016llX...",
+                  work->pool->pool_no, hash_head);
+            } else {
+                applog(LOG_NOTICE, "%s a new block 0x%016llX...",
+                  have_longpoll ? "Detected before LP" : "Detected", hash_head);
+            }
+        }
+        restart_threads();
+
+    } else {
 		bool restart = false;
 		struct pool *curpool = NULL;
 		if (unlikely(work->pool->block_id != block_id)) {
@@ -4563,32 +4559,26 @@ static bool test_work_current(struct work *work)
 			if (was_active) {  // Pool actively changed block
 				if (work->pool == (curpool = current_pool()))
 					restart = true;
-				if (block_id == current_block_id) {
-					// Caught up, only announce if this pool is the one in use
-					if (restart)
-						applog(LOG_NOTICE, "%s %d caught up to new block",
-						       work->longpoll ? "LONGPOLL from pool" : "Pool",
-						       work->pool->pool_no);
-				} else {
-					// Switched to a block we know, but not the latest... why?
-					// This might detect pools trying to double-spend or 51%,
-					// but let's not make any accusations until it's had time
-					// in the real world.
-					free(hexstr);
-					hexstr = blkhashstr(&work->data[4]);
-					applog(LOG_WARNING, "%s %d is issuing work for an old block: %s",
-					       work->longpoll ? "LONGPOLL from pool" : "Pool",
-					       work->pool->pool_no,
-					       hexstr);
-				}
+
+            if(block_id == current_block_id) {
+                if(restart)
+                  applog(LOG_NOTICE, "%s %d caught up to a new block 0x%016llX...",
+                    work->longpoll ? "LP from pool" : "Pool",
+                    work->pool->pool_no, hash_head);
+            } else {
+                applog(LOG_WARNING, "%s %d is issuing work for an old block 0x%016llX",
+                  work->longpoll ? "LP from pool" : "Pool",
+                  work->pool->pool_no, hash_head);
+            }
+
 			}
 		}
 	  if (work->longpoll) {
 		++work->pool->work_restart_id;
 		update_last_work(work);
 		if ((!restart) && work->pool == current_pool()) {
-			applog(LOG_NOTICE, "LONGPOLL from pool %d requested work restart",
-				work->pool->pool_no);
+            applog(LOG_NOTICE, "LP from pool %d requested work restart",
+              work->pool->pool_no);
 			restart = true;
 		}
 	  }
@@ -4596,8 +4586,7 @@ static bool test_work_current(struct work *work)
 			restart_threads();
 	}
 	work->longpoll = false;
-out_free:
-	free(hexstr);
+
 	return ret;
 }
 
@@ -5721,9 +5710,8 @@ out_unlock:
 static void stratum_share_result(json_t *val, json_t *res_val, json_t *err_val,
   struct stratum_share *sshare) {
     struct work *work = sshare->work;
-    char hashshow[100], outhash[17];
-    ullong *shash = (ullong *) &work->hash[24];
-    ullong hashdata = le64toh(shash[0]);
+    char hashshow[100], outhash[20];
+    ullong hashdata = le64toh(((ullong *) work->hash)[3]);
 
     _bin2hex((char *) &outhash[0], (uchar *) &hashdata, 8);
 
@@ -6054,8 +6042,13 @@ static void *stratum_thread(void *userdata)
 			unsigned char cb_height_sz;
 			hex2bin(&cb_height_sz, &hex_height[-2], 1);
 			if (cb_height_sz == 3) {
-				// FIXME: The block number will overflow this by AD 2173
-				uint32_t block_id = ((uint32_t*)work->data)[1];
+
+                    uint block_id;
+                    if(opt_neoscrypt)
+                      block_id = le32toh(((uint *) work->data)[1]);
+                    else
+                      block_id = be32toh(((uint *) work->data)[1]);
+
 				uint32_t height = 0;
 				hex2bin((unsigned char*)&height, hex_height, 3);
 				height = le32toh(height);
@@ -7639,7 +7632,7 @@ void quit(int status, const char *format, ...)
 	fflush(stderr);
 
 	if (status) {
-		const char *ev = getenv("__BFGMINER_SEGFAULT_ERRQUIT");
+        const char *ev = getenv("__NSGMINER_SEGFAULT_ERRQUIT");
 		if (unlikely(ev && ev[0] && ev[0] != '0')) {
 			const char **p = NULL;
 			// NOTE debugger can bypass with: p = &p
@@ -8011,10 +8004,8 @@ int main(int argc, char *argv[])
 	int skip_to_bench = 0;
 	#if defined(WIN32)
 		char buf[32];
-		if (GetEnvironmentVariable("BFGMINER_BENCH_ALGO", buf, 16))
-			skip_to_bench = 1;
-		if (GetEnvironmentVariable("CGMINER_BENCH_ALGO", buf, 16))
-			skip_to_bench = 1;
+        if(GetEnvironmentVariable("NSGMINER_BENCH_ALGO", buf, 16))
+          skip_to_bench = 1;
 	#endif // defined(WIN32)
 #endif
 
@@ -8025,8 +8016,7 @@ int main(int argc, char *argv[])
 	block = calloc(sizeof(struct block), 1);
 	if (unlikely(!block))
 		quit (1, "main OOM");
-	for (i = 0; i < 36; i++)
-		strcat(block->hash, "0");
+    sprintf(block->hash, "0000000000000000");
 	HASH_ADD_STR(blocks, hash, block);
 	strcpy(current_block, block->hash);
 
@@ -8102,8 +8092,8 @@ int main(int argc, char *argv[])
 				break;
 			case -1:
 				applog(LOG_WARNING, "Error in configuration file, partially loaded.");
-				if (use_curses)
-					applog(LOG_WARNING, "Start BFGMiner with -T to see what failed to load.");
+                if(use_curses)
+                  applog(LOG_WARNING, "Start the miner with -T to see what failed to load.");
 				break;
 			default:
 				break;
@@ -8136,7 +8126,7 @@ int main(int argc, char *argv[])
 #if defined(WIN32)
 				char unique_name[64];
 
-				if (GetEnvironmentVariable("BFGMINER_SHARED_MEM", unique_name, 32) || GetEnvironmentVariable("CGMINER_SHARED_MEM", unique_name, 32)) {
+                if(GetEnvironmentVariable("NSGMINER_SHARED_MEM", unique_name, 32)) {
 					HANDLE map_handle = CreateFileMapping(
 						INVALID_HANDLE_VALUE,   // use paging file
 						NULL,                   // default security attributes
@@ -8380,7 +8370,7 @@ int main(int argc, char *argv[])
 #ifdef HAVE_CURSES
 			if (use_curses) {
 				halfdelay(150);
-				applog(LOG_ERR, "Press any key to exit, or BFGMiner will try again in 15s.");
+                applog(LOG_ERR, "Press any key to exit or the miner will try again in 15s.");
 				if (getch() != ERR)
 					quit(0, "No servers could be used! Exiting.");
 				cbreak();

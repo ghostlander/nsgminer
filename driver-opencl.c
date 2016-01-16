@@ -1647,7 +1647,7 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 		applog(LOG_ERR, "Failed to init GPU thread %d, disabling device %d", i, gpu);
 		if (!failmessage) {
 			applog(LOG_ERR, "Restarting the GPU from the menu will not fix this.");
-			applog(LOG_ERR, "Try restarting BFGMiner.");
+            applog(LOG_ERR, "Try to restart the miner.");
 			failmessage = true;
 #ifdef HAVE_CURSES
 			char *buf;

@@ -1,6 +1,7 @@
 /*
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2012-2013 Luke Dashjr
+ * Copyright 2015-2016 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -647,8 +648,14 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
                 cgpu->max_intensity = i;
             } else break;
         }
-        if(cgpu->dynamic || (cgpu->intensity > cgpu->max_intensity))
-          cgpu->intensity = cgpu->max_intensity;
+        if(cgpu->dynamic) {
+            cgpu->intensity = cgpu->max_intensity;
+        } else {
+            if(cgpu->intensity > cgpu->max_intensity)
+              cgpu->intensity = cgpu->max_intensity;
+            else
+              cgpu->max_intensity = cgpu->intensity;
+        }
         applog(LOG_DEBUG, "GPU %d: max. intensity is %u", gpu, cgpu->max_intensity);
     }
 #endif

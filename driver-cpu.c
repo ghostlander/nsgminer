@@ -459,7 +459,7 @@ static double bench_algo_stage2(
 			applog(LOG_ERR, "could not map shared memory");
 			exit(1);
 		}
-		SetEnvironmentVariable("BFGMINER_SHARED_MEM", unique_name);
+        SetEnvironmentVariable("NSGMINER_SHARED_MEM", unique_name);
 		CopyMemory(shared_mem, &rate, sizeof(rate));
 
 		// Get path to current exe
@@ -474,7 +474,7 @@ static double bench_algo_stage2(
 		// Construct new command line based on that
 		char *p = strlen(cmd_line) + cmd_line;
 		sprintf(p, " --bench-algo %d", algo);
-		SetEnvironmentVariable("BFGMINER_BENCH_ALGO", "1");
+        SetEnvironmentVariable("NSGMINER_BENCH_ALGO", "1");
 
 		// Launch a debug copy of BFGMiner
 		STARTUPINFO startup_info;
@@ -914,7 +914,7 @@ static int64_t cpu_scanhash(struct thr_info *thr, struct work *work, int64_t max
         }
 
         if(rc) {
-            applog(LOG_DEBUG, "CPU thread %d found nonce %X",
+            applog(LOG_DEBUG, "CPU thread %d found nonce 0x%X",
               dev_from_id(thr_id), final_nonce);
             submit_work_async(work, NULL);
             /* Set a new start nonce and keep hashing */
