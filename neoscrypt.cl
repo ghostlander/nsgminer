@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2015 John Doering <ghostlander@phoenixcoin.org>
+ * Copyright (c) 2014-2016 John Doering <ghostlander@phoenixcoin.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,20 +27,50 @@
 
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20
  * Optimised for the AMD GCN, VLIW4 and VLIW5 architectures
- * v5, 30-Oct-2015 */
+ * v6, 16-Jan-2016 */
 
 
 /* Vectorised constants */
 __constant uint4 V7  = (uint4)( 7,  7,  7,  7);
 __constant uint4 V8  = (uint4)( 8,  8,  8,  8);
+__constant uint4 V9  = (uint4)( 9,  9,  9,  9);
 __constant uint4 V12 = (uint4)(12, 12, 12, 12);
+__constant uint4 V13 = (uint4)(13, 13, 13, 13);
 __constant uint4 V16 = (uint4)(16, 16, 16, 16);
+__constant uint4 V18 = (uint4)(18, 18, 18, 18);
+__constant uint4 V20 = (uint4)(20, 20, 20, 20);
 __constant uint4 V24 = (uint4)(24, 24, 24, 24);
+__constant uint4 V25 = (uint4)(25, 25, 25, 25);
 
+
+/* Vector code preferred for VLIW5 and VLIW4 */
+#if (__Cypress__) || (__Barts__) || (__Juniper__) || \
+(__Turks__) || (__Caicos__) || (__Redwood__) || (__Cedar__) || \
+(__BeaverCreek__) || (__WinterPark__) || (__Loveland__) || \
+(__Cayman__) || (__Devastator__) || (__Scrapper__)
+#define SALSA_SCALAR 0
+#define CHACHA_SCALAR 0
+#define BLAKE2S_SCALAR 0
+#define FASTKDF_SCALAR 0
+#elif (__Tahiti__) || (__Pitcairn__) || (__Capeverde__) || \
+(__Oland__) || (__Hainan__) || \
+(__Hawaii__) || (__Bonaire__) || \
+(__Kalindi__) || (__Mullins__) || (__Spectre__) || (__Spooky__) || \
+(__Tonga__) || (__Iceland__)
+#define SALSA_SCALAR 1
+#define CHACHA_SCALAR 1
+#define BLAKE2S_SCALAR 1
+#define FASTKDF_SCALAR 0
+#else
+#define SALSA_SCALAR 1
+#define CHACHA_SCALAR 1
+#define BLAKE2S_SCALAR 1
+#define FASTKDF_SCALAR 1
+#endif
 
 /* Unroll levels for Salsa and ChaCha */
-#define SALSA_UNROLL_LEVEL 3
-#define CHACHA_UNROLL_LEVEL 3
+#define SALSA_UNROLL_LEVEL 4
+#define CHACHA_UNROLL_LEVEL 4
 
 /* Reduces FastKDF kernel size by half;
  * might improve performance, disabled by default */
@@ -147,10 +177,30 @@ static const __constant uchar blake2s_sigma[10][16] = {
     c += d; \
     b = rotate(b ^ c, 25U);
 
+#define G1(x, a, b, c, d) \
+    a += b + (uint4)(m[blake2s_sigma[x][0]], m[blake2s_sigma[x][2]], m[blake2s_sigma[x][4]], m[blake2s_sigma[x][6]]); \
+    d = rotate(d ^ a, V16); \
+    c += d; \
+    b = rotate(b ^ c, V20); \
+    a += b + (uint4)(m[blake2s_sigma[x][1]], m[blake2s_sigma[x][3]], m[blake2s_sigma[x][5]], m[blake2s_sigma[x][7]]); \
+    d = rotate(d ^ a, V24); \
+    c += d; \
+    b = rotate(b ^ c, V25);
+
+#define G2(x, a, b, c, d) \
+    a += b + (uint4)(m[blake2s_sigma[x][8]], m[blake2s_sigma[x][10]], m[blake2s_sigma[x][12]], m[blake2s_sigma[x][14]]); \
+    d = rotate(d ^ a, V16); \
+    c += d; \
+    b = rotate(b ^ c, V20); \
+    a += b + (uint4)(m[blake2s_sigma[x][9]], m[blake2s_sigma[x][11]], m[blake2s_sigma[x][13]], m[blake2s_sigma[x][15]]); \
+    d = rotate(d ^ a, V24); \
+    c += d; \
+    b = rotate(b ^ c, V25);
+
 
 /* Salsa20/20 */
 
-#define SALSA_CORE(Y) \
+#define SALSA_CORE_SCALAR(Y) \
     Y.s4 ^= rotate(Y.s0 + Y.sc, 7U);  Y.s8 ^= rotate(Y.s4 + Y.s0, 9U);  \
     Y.sc ^= rotate(Y.s8 + Y.s4, 13U); Y.s0 ^= rotate(Y.sc + Y.s8, 18U); \
     Y.s9 ^= rotate(Y.s5 + Y.s1, 7U);  Y.sd ^= rotate(Y.s9 + Y.s5, 9U);  \
@@ -168,111 +218,253 @@ static const __constant uchar blake2s_sigma[10][16] = {
     Y.sc ^= rotate(Y.sf + Y.se, 7U);  Y.sd ^= rotate(Y.sc + Y.sf, 9U);  \
     Y.se ^= rotate(Y.sd + Y.sc, 13U); Y.sf ^= rotate(Y.se + Y.sd, 18U);
 
+#define SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3) \
+    Y0 ^= rotate(Y3 + Y2, V7);  \
+    Y1 ^= rotate(Y0 + Y3, V9);  \
+    Y2 ^= rotate(Y1 + Y0, V13); \
+    Y3 ^= rotate(Y2 + Y1, V18); \
+    Y2 ^= rotate(Y3.wxyz + Y0.zwxy, V7);  \
+    Y1 ^= rotate(Y2.wxyz + Y3.zwxy, V9);  \
+    Y0 ^= rotate(Y1.wxyz + Y2.zwxy, V13); \
+    Y3 ^= rotate(Y0.wxyz + Y1.zwxy, V18);
 
 uint16 neoscrypt_salsa(uint16 X) {
-    uint16 Y = X;
     uint i;
+
+#if (SALSA_SCALAR)
+
+    uint16 Y = X;
 
 #if (SALSA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_SCALAR(Y0, Y1, Y2, Y3);
     }
 
 #elif (SALSA_UNROLL_LEVEL == 3)
 
     for(i = 0; i < 4; i++) {
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y);
         if(i == 3) break;
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
     }
 
 #elif (SALSA_UNROLL_LEVEL == 4)
 
     for(i = 0; i < 3; i++) {
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
         if(i == 2) break;
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
      }
 
 #else
 
     for(i = 0; i < 2; i++) {
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
-        SALSA_CORE(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
     }
 
 #endif
 
     return(X + Y);
-}
 
+#else /* SALSA_VECTOR */
 
-/* ChaCha20/20 */
+    uint4 Y0 = (uint4)(X.s4, X.s9, X.se, X.s3);
+    uint4 Y1 = (uint4)(X.s8, X.sd, X.s2, X.s7);
+    uint4 Y2 = (uint4)(X.sc, X.s1, X.s6, X.sb);
+    uint4 Y3 = (uint4)(X.s0, X.s5, X.sa, X.sf);
 
-#define CHACHA_CORE(Y) \
-    Y[0] += Y[1]; Y[3] = rotate(Y[3] ^ Y[0], V16); \
-    Y[2] += Y[3]; Y[1] = rotate(Y[1] ^ Y[2], V12); \
-    Y[0] += Y[1]; Y[3] = rotate(Y[3] ^ Y[0], V8);  \
-    Y[2] += Y[3]; Y[1] = rotate(Y[1] ^ Y[2], V7);  \
-    Y[0]      += Y[1].yzwx; Y[3].wxyz = rotate(Y[3].wxyz ^ Y[0], V16); \
-    Y[2].zwxy += Y[3].wxyz; Y[1].yzwx = rotate(Y[1].yzwx ^ Y[2].zwxy, V12); \
-    Y[0]      += Y[1].yzwx; Y[3].wxyz = rotate(Y[3].wxyz ^ Y[0], V8); \
-    Y[2].zwxy += Y[3].wxyz; Y[1].yzwx = rotate(Y[1].yzwx ^ Y[2].zwxy, V7);
-
-
-uint16 neoscrypt_chacha(uint16 X) {
-    uint4 Y[4];
-    uint i;
-
-    ((uint16 *) Y)[0] = X;
-
-#if (CHACHA_UNROLL_LEVEL == 2)
+#if (SALSA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
     }
 
-#elif (CHACHA_UNROLL_LEVEL == 3)
+#elif (SALSA_UNROLL_LEVEL == 3)
 
     for(i = 0; i < 4; i++) {
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
         if(i == 3) break;
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
     }
 
-#elif (CHACHA_UNROLL_LEVEL == 4)
+#elif (SALSA_UNROLL_LEVEL == 4)
 
     for(i = 0; i < 3; i++) {
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
         if(i == 2) break;
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
      }
 
 #else
 
     for(i = 0; i < 2; i++) {
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
-        CHACHA_CORE(Y);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
     }
 
 #endif
 
-    return(X + ((uint16 *) Y)[0]);
+    return(X + (uint16)(Y3.x, Y2.y, Y1.z, Y0.w, Y0.x, Y3.y, Y2.z, Y1.w,
+                        Y1.x, Y0.y, Y3.z, Y2.w, Y2.x, Y1.y, Y0.z, Y3.w));
+
+#endif
+}
+
+
+/* ChaCha20/20 */
+
+#define CHACHA_CORE_SCALAR(Y) \
+    Y.s0 += Y.s4; Y.sc = rotate(Y.sc ^ Y.s0, 16U); \
+    Y.s8 += Y.sc; Y.s4 = rotate(Y.s4 ^ Y.s8, 12U); \
+    Y.s0 += Y.s4; Y.sc = rotate(Y.sc ^ Y.s0, 8U);  \
+    Y.s8 += Y.sc; Y.s4 = rotate(Y.s4 ^ Y.s8, 7U);  \
+    Y.s1 += Y.s5; Y.sd = rotate(Y.sd ^ Y.s1, 16U); \
+    Y.s9 += Y.sd; Y.s5 = rotate(Y.s5 ^ Y.s9, 12U); \
+    Y.s1 += Y.s5; Y.sd = rotate(Y.sd ^ Y.s1, 8U);  \
+    Y.s9 += Y.sd; Y.s5 = rotate(Y.s5 ^ Y.s9, 7U);  \
+    Y.s2 += Y.s6; Y.se = rotate(Y.se ^ Y.s2, 16U); \
+    Y.sa += Y.se; Y.s6 = rotate(Y.s6 ^ Y.sa, 12U); \
+    Y.s2 += Y.s6; Y.se = rotate(Y.se ^ Y.s2, 8U);  \
+    Y.sa += Y.se; Y.s6 = rotate(Y.s6 ^ Y.sa, 7U);  \
+    Y.s3 += Y.s7; Y.sf = rotate(Y.sf ^ Y.s3, 16U); \
+    Y.sb += Y.sf; Y.s7 = rotate(Y.s7 ^ Y.sb, 12U); \
+    Y.s3 += Y.s7; Y.sf = rotate(Y.sf ^ Y.s3, 8U);  \
+    Y.sb += Y.sf; Y.s7 = rotate(Y.s7 ^ Y.sb, 7U);  \
+    Y.s0 += Y.s5; Y.sf = rotate(Y.sf ^ Y.s0, 16U); \
+    Y.sa += Y.sf; Y.s5 = rotate(Y.s5 ^ Y.sa, 12U); \
+    Y.s0 += Y.s5; Y.sf = rotate(Y.sf ^ Y.s0, 8U);  \
+    Y.sa += Y.sf; Y.s5 = rotate(Y.s5 ^ Y.sa, 7U);  \
+    Y.s1 += Y.s6; Y.sc = rotate(Y.sc ^ Y.s1, 16U); \
+    Y.sb += Y.sc; Y.s6 = rotate(Y.s6 ^ Y.sb, 12U); \
+    Y.s1 += Y.s6; Y.sc = rotate(Y.sc ^ Y.s1, 8U);  \
+    Y.sb += Y.sc; Y.s6 = rotate(Y.s6 ^ Y.sb, 7U);  \
+    Y.s2 += Y.s7; Y.sd = rotate(Y.sd ^ Y.s2, 16U); \
+    Y.s8 += Y.sd; Y.s7 = rotate(Y.s7 ^ Y.s8, 12U); \
+    Y.s2 += Y.s7; Y.sd = rotate(Y.sd ^ Y.s2, 8U);  \
+    Y.s8 += Y.sd; Y.s7 = rotate(Y.s7 ^ Y.s8, 7U);  \
+    Y.s3 += Y.s4; Y.se = rotate(Y.se ^ Y.s3, 16U); \
+    Y.s9 += Y.se; Y.s4 = rotate(Y.s4 ^ Y.s9, 12U); \
+    Y.s3 += Y.s4; Y.se = rotate(Y.se ^ Y.s3, 8U);  \
+    Y.s9 += Y.se; Y.s4 = rotate(Y.s4 ^ Y.s9, 7U);
+
+#define CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3) \
+    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, V16); \
+    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, V12); \
+    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, V8);  \
+    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, V7);  \
+    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, V16); \
+    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, V12); \
+    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, V8);  \
+    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, V7);
+
+uint16 neoscrypt_chacha(uint16 X) {
+    uint i;
+
+#if (CHACHA_SCALAR)
+
+    uint16 Y = X;
+
+#if (CHACHA_UNROLL_LEVEL == 2)
+
+    for(i = 0; i < 5; i++) {
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 3)
+
+    for(i = 0; i < 4; i++) {
+        CHACHA_CORE_SCALAR(Y);
+        if(i == 3) break;
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 4)
+
+    for(i = 0; i < 3; i++) {
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+        if(i == 2) break;
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+     }
+
+#else
+
+    for(i = 0; i < 2; i++) {
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+        CHACHA_CORE_SCALAR(Y);
+    }
+
+#endif
+
+    return(X + Y);
+
+#else /* CHACHA_VECTOR */
+
+    uint4 Y0 = X.s0123, Y1 = X.s4567, Y2 = X.s89ab, Y3 = X.scdef;
+
+#if (CHACHA_UNROLL_LEVEL == 2)
+
+    for(i = 0; i < 5; i++) {
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 3)
+
+    for(i = 0; i < 4; i++) {
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        if(i == 3) break;
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 4)
+
+    for(i = 0; i < 3; i++) {
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        if(i == 2) break;
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+     }
+
+#else
+
+    for(i = 0; i < 2; i++) {
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+    }
+
+#endif
+
+    return(X + (uint16)(Y0, Y1, Y2, Y3));
+
+#endif
 }
 
 
@@ -390,6 +582,7 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
 
 #pragma unroll
             for(j = 0; j < 10; j++) {
+#if (BLAKE2S_SCALAR)
                 G(j,  0, S.s0, S.s4, S.s8, S.sc);
                 G(j,  2, S.s1, S.s5, S.s9, S.sd);
                 G(j,  4, S.s2, S.s6, S.sa, S.se);
@@ -398,6 +591,10 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
                 G(j, 10, S.s1, S.s6, S.sb, S.sc);
                 G(j, 12, S.s2, S.s7, S.s8, S.sd);
                 G(j, 14, S.s3, S.s4, S.s9, S.se);
+#else
+                G1(j, S.s0123, S.s4567, S.s89ab, S.scdef);
+                G2(j, S.s0123, S.s5674, S.sab89, S.sfcde);
+#endif
             }
 
             if(z) break;
@@ -417,6 +614,7 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
 
 #pragma unroll
         for(j = 0; j < 10; j++) {
+#if (BLAKE2S_SCALAR)
             G(j,  0, S.s0, S.s4, S.s8, S.sc);
             G(j,  2, S.s1, S.s5, S.s9, S.sd);
             G(j,  4, S.s2, S.s6, S.sa, S.se);
@@ -425,6 +623,10 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
             G(j, 10, S.s1, S.s6, S.sb, S.sc);
             G(j, 12, S.s2, S.s7, S.s8, S.sd);
             G(j, 14, S.s3, S.s4, S.s9, S.se);
+#else
+            G1(j, S.s0123, S.s4567, S.s89ab, S.scdef);
+            G2(j, S.s0123, S.s5674, S.sab89, S.sfcde);
+#endif
         }
 
         S.lo ^= S.hi ^ T[0];
@@ -453,6 +655,47 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         T[0] ^= S.lo ^ S.hi;
 
         /* Calculate the next buffer pointer */
+#if (FASTKDF_SCALAR)
+        uint8 temp;
+
+        temp.lo = t[0];
+        temp.hi = t[1];
+
+        bufptr  = temp.s0;
+        bufptr += rotate(temp.s0, 24U);
+        bufptr += rotate(temp.s0, 16U);
+        bufptr += rotate(temp.s0, 8U);
+        bufptr += temp.s1;
+        bufptr += rotate(temp.s1, 24U);
+        bufptr += rotate(temp.s1, 16U);
+        bufptr += rotate(temp.s1, 8U);
+        bufptr += temp.s2;
+        bufptr += rotate(temp.s2, 24U);
+        bufptr += rotate(temp.s2, 16U);
+        bufptr += rotate(temp.s2, 8U);
+        bufptr += temp.s3;
+        bufptr += rotate(temp.s3, 24U);
+        bufptr += rotate(temp.s3, 16U);
+        bufptr += rotate(temp.s3, 8U);
+        bufptr += temp.s4;
+        bufptr += rotate(temp.s4, 24U);
+        bufptr += rotate(temp.s4, 16U);
+        bufptr += rotate(temp.s4, 8U);
+        bufptr += temp.s5;
+        bufptr += rotate(temp.s5, 24U);
+        bufptr += rotate(temp.s5, 16U);
+        bufptr += rotate(temp.s5, 8U);
+        bufptr += temp.s6;
+        bufptr += rotate(temp.s6, 24U);
+        bufptr += rotate(temp.s6, 16U);
+        bufptr += rotate(temp.s6, 8U);
+        bufptr += temp.s7;
+        bufptr += rotate(temp.s7, 24U);
+        bufptr += rotate(temp.s7, 16U);
+        bufptr += rotate(temp.s7, 8U);
+
+        bufptr &= 0xFF;
+#else
         uint4 temp;
         temp  = t[0];
         temp += rotate(t[0], V24);
@@ -464,6 +707,7 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         temp += rotate(t[1], V8);
 
         bufptr = (temp.x + temp.y + temp.z + temp.w) & 0xFF;
+#endif
 
         /* Modify the salt buffer */
         neoscrypt_bxor(&Bb[bufptr], &T[0], 32);
