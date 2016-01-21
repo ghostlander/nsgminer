@@ -233,7 +233,7 @@ static struct list_head submit_waiting;
 notifier_t submit_waiting_notifier;
 
 int hw_errors;
-int total_accepted, total_rejected, total_diff1;
+int total_accepted, total_rejected;
 int total_getworks, total_stale, total_discarded;
 uint64_t total_bytes_xfer;
 double total_diff_accepted, total_diff_rejected, total_diff_stale;
@@ -2310,7 +2310,7 @@ static void curses_print_status(void)
           pool->sockaddr_url, pool->diff, have_longpoll ? "": "out", pool->rpc_user);
 	}
 	wclrtoeol(statuswin);
-    mvwprintw(statuswin, 5, 0, " Block: %s %s  Diff:%s  Best:%s",
+    mvwprintw(statuswin, 5, 0, " Block: %s %s  Diff:%s  Best:%s  ",
       current_hash, blocktime, block_diff, best_share);
 	mvwhline(statuswin, 6, 0, '-', 80);
 	mvwhline(statuswin, statusy - 1, 0, '-', 80);
@@ -2841,9 +2841,9 @@ out:
  * away from them to distribute work evenly. The share count is reset to the
  * rolling average every 10 minutes to not send all work to one pool after it
  * has been disabled/out for an extended period. */
-static struct pool *select_balanced(struct pool *cp)
-{
-	int i, lowest = cp->shares;
+static struct pool *select_balanced(struct pool *cp) {
+    double lowest = cp->shares;
+	int i;
 	struct pool *ret = cp;
 
 	for (i = 0; i < total_pools; i++) {
@@ -5029,7 +5029,6 @@ void zero_stats(void)
 	total_go = 0;
 	total_ro = 0;
 	total_secs = 1.0;
-	total_diff1 = 0;
 	found_blocks = 0;
 	total_diff_accepted = 0;
 	total_diff_rejected = 0;
@@ -5048,7 +5047,6 @@ void zero_stats(void)
 		pool->getfail_occasions = 0;
 		pool->remotefail_occasions = 0;
 		pool->last_share_time = 0;
-		pool->diff1 = 0;
 		pool->diff_accepted = 0;
 		pool->diff_rejected = 0;
 		pool->diff_stale = 0;
@@ -5088,7 +5086,6 @@ void zero_stats(void)
 		cgpu->utility = 0.0;
 		cgpu->utility_diff1 = 0;
 		cgpu->last_share_pool_time = 0;
-		cgpu->diff1 = 0;
 		cgpu->diff_accepted = 0;
 		cgpu->diff_rejected = 0;
 		cgpu->last_share_diff = 0;
@@ -5693,7 +5690,7 @@ static void hashmeter(int thr_id, struct timeval *diff,
     sprintf(statusline, "%s%ds:%s avg:%s u:%s | A:%d R:%d S:%d HW:%d WU:%.2f/m",
       want_per_device_stats ? "ALL " : "", opt_log_interval, cHr, aHr, uHr,
       (uint)total_diff_accepted, (uint)total_diff_rejected, (uint)total_diff_stale,
-      hw_errors, total_diff1 / total_secs * 60);
+      hw_errors, total_diff_accepted / total_secs * 60);
 
 	local_mhashes_done = 0;
 out_unlock:
@@ -6664,17 +6661,10 @@ enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce,
 void submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
 {
 	uint32_t *work_nonce = (uint32_t *)(work->data + 64 + 12);
-	uint32_t bak_nonce = *work_nonce;
 	struct timeval tv_work_found;
 
 	gettimeofday(&tv_work_found, NULL);
 	*work_nonce = htole32(nonce);
-
-	mutex_lock(&stats_lock);
-	total_diff1++;
-	thr->cgpu->diff1++;
-	work->pool->diff1++;
-	mutex_unlock(&stats_lock);
 
 	/* Do one last check before attempting to submit the work */
 	/* Side effect: sets work->data for us */
@@ -6691,20 +6681,19 @@ void submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
 
 			if (thr->cgpu->api->hw_error)
 				thr->cgpu->api->hw_error(thr);
-			goto out;
 		}
+            break;
 		case TNR_HIGH:
 			// Share above target, normal
 			/* Check the diff of the share, even if it didn't reach the
 			 * target, just to set the best share value if it's higher. */
 			share_diff(work);
-			goto out;
-		case TNR_GOOD:
-			break;
+            break;
+        case(TNR_GOOD):
+            /* Submit work verified */
+            submit_work_async(work, &tv_work_found);
+            break;
 	}
-	submit_work_async(work, &tv_work_found);
-out:
-	*work_nonce = bak_nonce;
 }
 
 static inline bool abandon_work(struct work *work, struct timeval *wdiff, uint64_t hashes)
@@ -7239,10 +7228,10 @@ static void *watchpool_thread(void __maybe_unused *userdata)
 
 			/* Get a rolling utility per pool over 10 mins */
 			if (intervals > 19) {
-				int shares = pool->diff1 - pool->last_shares;
+                double shares = pool->diff_accepted - pool->last_shares;
 
-				pool->last_shares = pool->diff1;
-				pool->utility = (pool->utility + (double)shares * 0.63) / 1.63;
+                pool->last_shares = pool->diff_accepted;
+                pool->utility = (pool->utility + shares * 0.63) / 1.63;
 				pool->shares = pool->utility;
 			}
 
@@ -7546,8 +7535,8 @@ void print_summary(void)
 	applog(LOG_WARNING, "Efficiency (accepted shares * difficulty / 2 KB): %.2f", efficiency);
     applog(LOG_WARNING, "Utility (accepted shares / min): %.2f/min",
       (double)total_accepted / (double)(total_secs * 60));
-    applog(LOG_WARNING, "Work Utility (diff1 shares solved / min): %.2f/min\n",
-      (double)total_diff1 / (double)(total_secs * 60));
+    applog(LOG_WARNING, "Work Utility (diff1 shares accepted / min): %.2f/min\n",
+      (double)total_diff_accepted / (double)(total_secs * 60));
 
 	applog(LOG_WARNING, "Discarded work due to new blocks: %d", total_discarded);
 	applog(LOG_WARNING, "Stale submissions discarded due to new blocks: %d", total_stale);
@@ -7567,8 +7556,8 @@ void print_summary(void)
 			applog(LOG_WARNING, " Share submissions: %d", pool->accepted + pool->rejected);
 			applog(LOG_WARNING, " Accepted shares: %d", pool->accepted);
 			applog(LOG_WARNING, " Rejected shares: %d", pool->rejected);
-			applog(LOG_WARNING, " Accepted difficulty shares: %1.f", pool->diff_accepted);
-			applog(LOG_WARNING, " Rejected difficulty shares: %1.f", pool->diff_rejected);
+            applog(LOG_WARNING, " Accepted diff1 shares: %1.f", pool->diff_accepted);
+            applog(LOG_WARNING, " Rejected diff1 shares: %1.f", pool->diff_rejected);
 			if (pool->accepted || pool->rejected)
 				applog(LOG_WARNING, " Reject ratio: %.1f%%", (double)(pool->rejected * 100) / (double)(pool->accepted + pool->rejected));
 			uint64_t pool_bytes_xfer = pool->cgminer_pool_stats.net_bytes_received + pool->cgminer_pool_stats.net_bytes_sent;

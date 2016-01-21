@@ -495,7 +495,6 @@ struct cgpu_info {
 	int gpu_powertune;
 	float gpu_vddc;
 #endif
-	int diff1;
 	double diff_accepted;
 	double diff_rejected;
 	int last_share_pool;
@@ -848,7 +847,7 @@ extern int opt_rotate_period;
 extern double total_mhashes_done;
 extern unsigned int new_blocks;
 extern unsigned int found_blocks;
-extern int total_accepted, total_rejected, total_diff1;;
+extern int total_accepted, total_rejected;
 extern int total_getworks, total_stale, total_discarded;
 extern uint64_t total_bytes_xfer;
 extern double total_diff_accepted, total_diff_rejected, total_diff_stale;
@@ -951,7 +950,7 @@ struct pool {
 	int seq_rejects;
 	int seq_getfails;
 	int solved;
-	int diff1;
+
 	char diff[8];
 
 	double diff_accepted;
@@ -985,7 +984,7 @@ struct pool {
 	struct timeval tv_idle;
 
 	double utility;
-	int last_shares, shares;
+double last_shares, shares;
 
 	char *rpc_url;
 	char *rpc_userpass;

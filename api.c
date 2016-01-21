@@ -1530,7 +1530,6 @@ static void devstatus_an(struct io_data *io_data, struct cgpu_info *cgpu, bool i
 	root = api_add_int(root, "Last Share Pool", &last_share_pool, false);
 	root = api_add_time(root, "Last Share Time", &(cgpu->last_share_pool_time), false);
 	root = api_add_mhtotal(root, "Total MH", &(cgpu->total_mhashes), false);
-	root = api_add_int(root, "Diff1 Work", &(cgpu->diff1), false);
 	root = api_add_diff(root, "Difficulty Accepted", &(cgpu->diff_accepted), false);
 	root = api_add_diff(root, "Difficulty Rejected", &(cgpu->diff_rejected), false);
 	root = api_add_diff(root, "Last Share Difficulty", &(cgpu->last_share_diff), false);
@@ -1906,7 +1905,6 @@ static void poolstatus(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __m
 		root = api_add_uint(root, "Remote Failures", &(pool->remotefail_occasions), false);
 		root = api_add_escape(root, "User", pool->rpc_user, false);
 		root = api_add_time(root, "Last Share Time", &(pool->last_share_time), false);
-		root = api_add_int(root, "Diff1 Shares", &(pool->diff1), false);
 		if (pool->rpc_proxy) {
 			root = api_add_escape(root, "Proxy", pool->rpc_proxy, false);
 		} else {
@@ -1953,7 +1951,7 @@ static void summary(struct io_data *io_data, __maybe_unused SOCKETTYPE c, __mayb
 
 	utility = total_accepted / ( total_secs ? total_secs : 1 ) * 60;
 	mhs = total_mhashes_done / total_secs;
-	work_utility = total_diff1 / ( total_secs ? total_secs : 1 ) * 60;
+    work_utility = total_diff_accepted / ( total_secs ? total_secs : 1 ) * 60;
 
 	root = api_add_elapsed(root, "Elapsed", &(total_secs), true);
 #ifdef WANT_CPUMINE
