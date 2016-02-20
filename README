@@ -1,7 +1,10 @@
+NSGminer
+========
 
-This is a multi-threaded multi-pool FPGA, GPU and CPU miner with ATI GPU
-monitoring, (over)clocking and fanspeed support for bitcoin and derivative
-coins. Do not use on multiple block chains at the same time!
+A multithreaded multipool GPU, CPU and FPGA miner with the AMD and NVIDIA GPU
+support including temperature monitoring, fan speed monitoring, clock speed and
+voltage reporting, (over/under)clocking for NeoScrypt powered coins. Do not use
+on multiple block chains at the same time!
 
 This code is provided entirely free of charge with no guarantee or
 responsibility of any kind expressed or implied.
@@ -204,6 +207,7 @@ GPU only options:
 --kernel|-k <arg>   Override kernel to use (diablo, poclbm, phatk or diakgcn) - one value or comma separated
 --ndevs|-n          Enumerate number of detected GPUs and exit
 --no-adl            Disable the ATI display library used for monitoring and setting GPU parameters
+--no-nvml           Disable the NVIDIA Managment Library used for monitoring GPU parameters
 --temp-overheat <arg> Overheat temperature when automatically managing fan and GPU speeds (default: 85)
 --vectors|-v <arg>  Override detected optimal vector (1, 2 or 4) - one value or comma separated list
 --worksize|-w <arg> Override detected optimal worksize - one value or comma separated list
