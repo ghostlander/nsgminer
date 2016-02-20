@@ -670,6 +670,7 @@ static inline void wr_lock(pthread_rwlock_t *lock)
 {
 	if (unlikely(pthread_rwlock_wrlock(lock)))
 		quit(1, "WTF WRLOCK ERROR ON LOCK!");
+    sched_yield();
 }
 
 static inline void rd_lock(pthread_rwlock_t *lock)
@@ -682,6 +683,7 @@ static inline void rw_unlock(pthread_rwlock_t *lock)
 {
 	if (unlikely(pthread_rwlock_unlock(lock)))
 		quit(1, "WTF RWLOCK ERROR ON UNLOCK!");
+    sched_yield();
 }
 
 static inline void rd_unlock(pthread_rwlock_t *lock)
