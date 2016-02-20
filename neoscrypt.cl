@@ -27,93 +27,306 @@
 
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20
  * Optimised for the AMD GCN, VLIW4 and VLIW5 architectures
- * v6, 16-Jan-2016 */
+ * v7, 20-Feb-2016 */
 
 
-/* Vectorised constants */
-__constant uint4 V7  = (uint4)( 7,  7,  7,  7);
-__constant uint4 V8  = (uint4)( 8,  8,  8,  8);
-__constant uint4 V9  = (uint4)( 9,  9,  9,  9);
-__constant uint4 V12 = (uint4)(12, 12, 12, 12);
-__constant uint4 V13 = (uint4)(13, 13, 13, 13);
-__constant uint4 V16 = (uint4)(16, 16, 16, 16);
-__constant uint4 V18 = (uint4)(18, 18, 18, 18);
-__constant uint4 V20 = (uint4)(20, 20, 20, 20);
-__constant uint4 V24 = (uint4)(24, 24, 24, 24);
-__constant uint4 V25 = (uint4)(25, 25, 25, 25);
-
-
-/* Vector code preferred for VLIW5 and VLIW4 */
-#if (__Cypress__) || (__Barts__) || (__Juniper__) || \
+#if (__ATI_RV770__) || (__ATI_RV730__) || (__ATI_RV710__)
+/* AMD TeraScale with OpenCL / VLIW5 (all HD4000 series) */
+#define OLD_VLIW 1
+#elif(__Cypress__) || (__Barts__) || (__Juniper__) || \
 (__Turks__) || (__Caicos__) || (__Redwood__) || (__Cedar__) || \
 (__BeaverCreek__) || (__WinterPark__) || (__Loveland__) || \
 (__Cayman__) || (__Devastator__) || (__Scrapper__)
-#define SALSA_SCALAR 0
-#define CHACHA_SCALAR 0
-#define BLAKE2S_SCALAR 0
-#define FASTKDF_SCALAR 0
+/* AMD TeraScale 2 / VLIW5 (all HD5000 series, most HD6000 series,
+ * some HD83x0 and HD84x0 OEM cards);
+ * AMD TeraScale 3 / VLIW4 (HD69x0, HD73x0, HD74x0, HD75x0, HD76x0,
+ * HD83x0, HD84x0, HD85x0, HD86x0, R5 220, R5 235[X] cards and APUs) */
+#define VLIW 1
 #elif (__Tahiti__) || (__Pitcairn__) || (__Capeverde__) || \
 (__Oland__) || (__Hainan__) || \
 (__Hawaii__) || (__Bonaire__) || \
 (__Kalindi__) || (__Mullins__) || (__Spectre__) || (__Spooky__) || \
 (__Tonga__) || (__Iceland__)
-#define SALSA_SCALAR 1
-#define CHACHA_SCALAR 1
-#define BLAKE2S_SCALAR 1
+/* AMD Graphics Core Next based GPUs and APUs */
+#define GCN 1
+#endif
+
+#if (cl_nv_pragma_unroll)
+#define NVIDIA 1
+#endif
+
+#if (OLD_VLIW) || (VLIW)
+#define SALSA_SCALAR 0
+#define CHACHA_SCALAR 0
+#define BLAKE2S_SCALAR 0
 #define FASTKDF_SCALAR 0
+#define SALSA_UNROLL_LEVEL 4
+#define CHACHA_UNROLL_LEVEL 4
+#define FASTKDF_COMPACT 0
+#define BLAKE2S_COMPACT 0
+#elif (GCN)
+#define SALSA_SCALAR 0
+#define CHACHA_SCALAR 0
+#define BLAKE2S_SCALAR 0
+#define FASTKDF_SCALAR 0
+#define SALSA_UNROLL_LEVEL 4
+#define CHACHA_UNROLL_LEVEL 4
+#define FASTKDF_COMPACT 1
+#define BLAKE2S_COMPACT 0
+#elif (NVIDIA)
+#define SALSA_SCALAR 0
+#define CHACHA_SCALAR 0
+#define BLAKE2S_SCALAR 0
+#define FASTKDF_SCALAR 0
+#define SALSA_UNROLL_LEVEL 1
+#define CHACHA_UNROLL_LEVEL 1
+#define FASTKDF_COMPACT 1
+#define BLAKE2S_COMPACT 1
 #else
 #define SALSA_SCALAR 1
 #define CHACHA_SCALAR 1
 #define BLAKE2S_SCALAR 1
 #define FASTKDF_SCALAR 1
-#endif
-
-/* Unroll levels for Salsa and ChaCha */
-#define SALSA_UNROLL_LEVEL 4
-#define CHACHA_UNROLL_LEVEL 4
-
-/* Reduces FastKDF kernel size by half;
- * might improve performance, disabled by default */
+#define SALSA_UNROLL_LEVEL 2
+#define CHACHA_UNROLL_LEVEL 2
 #define FASTKDF_COMPACT 0
-
-/* Reduces BLAKE2s kernel size by half;
- * unlikely to improve performance, disabled by default */
 #define BLAKE2S_COMPACT 0
+#endif
 
-
-#if !(cl_khr_byte_addressable_store)
-#error "Device does not support unaligned stores"
+#if (VLIW) || (GCN)
+/* Use amd_bitalign() because amd_bytealign() might be broken in old drivers */
+#pragma OPENCL EXTENSION cl_amd_media_ops : enable
 #endif
 
 
-/* Slow bytewise memcpy() of unaligned memory */
-void neoscrypt_bcopy(void *restrict dstp, const void *restrict srcp, const uint len) {
-    uchar *dst = (uchar *) dstp;
-    uchar *src = (uchar *) srcp;
+#if !(OLD_VLIW) || !(VLIW)
+/* memcpy() of 4-byte aligned memory */
+void neoscrypt_copy4(void *restrict dstp, const void *restrict srcp,
+  uint len) {
+    uint *dst = (uint *) dstp;
+    uint *src = (uint *) srcp;
     uint i;
+
+    len >>= 2;
 
     for(i = 0; i < len; i++)
       dst[i] = src[i];
 }
+#endif
 
-/* Slow bytewise memcpy() of unaligned memory to local memory */
-void neoscrypt_blcopy(__local void *dstp, const void *restrict srcp, const uint len) {
-    __local uchar *dst = (__local uchar *) dstp;
-    uchar *src = (uchar *) srcp;
-    uint i;
+/* 32-byte memcpy() of possibly unaligned memory to 4-byte aligned local memory */
+void neoscrypt_lcopy32(__local void *restrict dstp, const void *restrict srcp,
+  uint offset) {
+    __local uint *dst = (__local uint *) dstp;
+    uint *src = (uint *) srcp;
 
-    for(i = 0; i < len; i++)
-      dst[i] = src[i];
+#if (VLIW) || (GCN)
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0] = amd_bitalign(src[1], src[0], offset);
+    dst[1] = amd_bitalign(src[2], src[1], offset);
+    dst[2] = amd_bitalign(src[3], src[2], offset);
+    dst[3] = amd_bitalign(src[4], src[3], offset);
+    dst[4] = amd_bitalign(src[5], src[4], offset);
+    dst[5] = amd_bitalign(src[6], src[5], offset);
+    dst[6] = amd_bitalign(src[7], src[6], offset);
+    dst[7] = amd_bitalign(src[8], src[7], offset);
+#else
+    offset <<= 3;
+    uint roffset = 32U - offset;
+
+    dst[0] = ((uint)((ulong)src[1] << roffset) | (src[0] >> offset));
+    dst[1] = ((uint)((ulong)src[2] << roffset) | (src[1] >> offset));
+    dst[2] = ((uint)((ulong)src[3] << roffset) | (src[2] >> offset));
+    dst[3] = ((uint)((ulong)src[4] << roffset) | (src[3] >> offset));
+    dst[4] = ((uint)((ulong)src[5] << roffset) | (src[4] >> offset));
+    dst[5] = ((uint)((ulong)src[6] << roffset) | (src[5] >> offset));
+    dst[6] = ((uint)((ulong)src[7] << roffset) | (src[6] >> offset));
+    dst[7] = ((uint)((ulong)src[8] << roffset) | (src[7] >> offset));
+#endif
 }
 
-/* Slow bytewise XOR of unaligned memory */
-void neoscrypt_bxor(void *restrict dstp, const void *restrict srcp, const uint len) {
-    uchar *dst = (uchar *) dstp;
-    uchar *src = (uchar *) srcp;
+/* 64-byte memcpy() of possibly unaligned memory to 4-byte aligned local memory */
+void neoscrypt_lcopy64(__local void *restrict dstp, const void *restrict srcp,
+  uint offset) {
+    __local uint *dst = (__local uint *) dstp;
+    uint *src = (uint *) srcp;
+
+#if (VLIW) || (GCN)
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0]  = amd_bitalign(src[1],  src[0], offset);
+    dst[1]  = amd_bitalign(src[2],  src[1], offset);
+    dst[2]  = amd_bitalign(src[3],  src[2], offset);
+    dst[3]  = amd_bitalign(src[4],  src[3], offset);
+    dst[4]  = amd_bitalign(src[5],  src[4], offset);
+    dst[5]  = amd_bitalign(src[6],  src[5], offset);
+    dst[6]  = amd_bitalign(src[7],  src[6], offset);
+    dst[7]  = amd_bitalign(src[8],  src[7], offset);
+    dst[8]  = amd_bitalign(src[9],  src[8], offset);
+    dst[9]  = amd_bitalign(src[10], src[9], offset);
+    dst[10] = amd_bitalign(src[11], src[10], offset);
+    dst[11] = amd_bitalign(src[12], src[11], offset);
+    dst[12] = amd_bitalign(src[13], src[12], offset);
+    dst[13] = amd_bitalign(src[14], src[13], offset);
+    dst[14] = amd_bitalign(src[15], src[14], offset);
+    dst[15] = amd_bitalign(src[16], src[15], offset);
+#else
+    offset <<= 3;
+    uint roffset = 32U - offset;
+
+    dst[0]  = ((uint)((ulong)src[1]  << roffset) | (src[0]  >> offset));
+    dst[1]  = ((uint)((ulong)src[2]  << roffset) | (src[1]  >> offset));
+    dst[2]  = ((uint)((ulong)src[3]  << roffset) | (src[2]  >> offset));
+    dst[3]  = ((uint)((ulong)src[4]  << roffset) | (src[3]  >> offset));
+    dst[4]  = ((uint)((ulong)src[5]  << roffset) | (src[4]  >> offset));
+    dst[5]  = ((uint)((ulong)src[6]  << roffset) | (src[5]  >> offset));
+    dst[6]  = ((uint)((ulong)src[7]  << roffset) | (src[6]  >> offset));
+    dst[7]  = ((uint)((ulong)src[8]  << roffset) | (src[7]  >> offset));
+    dst[8]  = ((uint)((ulong)src[9]  << roffset) | (src[8]  >> offset));
+    dst[9]  = ((uint)((ulong)src[10] << roffset) | (src[9]  >> offset));
+    dst[10] = ((uint)((ulong)src[11] << roffset) | (src[10] >> offset));
+    dst[11] = ((uint)((ulong)src[12] << roffset) | (src[11] >> offset));
+    dst[12] = ((uint)((ulong)src[13] << roffset) | (src[12] >> offset));
+    dst[13] = ((uint)((ulong)src[14] << roffset) | (src[13] >> offset));
+    dst[14] = ((uint)((ulong)src[15] << roffset) | (src[14] >> offset));
+    dst[15] = ((uint)((ulong)src[16] << roffset) | (src[15] >> offset));
+#endif
+}
+
+/* 32-byte XOR of possibly unaligned memory to 4-byte aligned memory */
+void neoscrypt_xor32_ua(void *restrict dstp, const void *restrict srcp,
+  uint offset) {
+    uint *dst = (uint *) dstp;
+    uint *src = (uint *) srcp;
+
+#if (VLIW) || (GCN)
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0] ^= amd_bitalign(src[1], src[0], offset);
+    dst[1] ^= amd_bitalign(src[2], src[1], offset);
+    dst[2] ^= amd_bitalign(src[3], src[2], offset);
+    dst[3] ^= amd_bitalign(src[4], src[3], offset);
+    dst[4] ^= amd_bitalign(src[5], src[4], offset);
+    dst[5] ^= amd_bitalign(src[6], src[5], offset);
+    dst[6] ^= amd_bitalign(src[7], src[6], offset);
+    dst[7] ^= amd_bitalign(src[8], src[7], offset);
+#else
+    offset <<= 3;
+    uint roffset = 32U - offset;
+
+    dst[0] ^= ((uint)((ulong)src[1] << roffset) | (src[0] >> offset));
+    dst[1] ^= ((uint)((ulong)src[2] << roffset) | (src[1] >> offset));
+    dst[2] ^= ((uint)((ulong)src[3] << roffset) | (src[2] >> offset));
+    dst[3] ^= ((uint)((ulong)src[4] << roffset) | (src[3] >> offset));
+    dst[4] ^= ((uint)((ulong)src[5] << roffset) | (src[4] >> offset));
+    dst[5] ^= ((uint)((ulong)src[6] << roffset) | (src[5] >> offset));
+    dst[6] ^= ((uint)((ulong)src[7] << roffset) | (src[6] >> offset));
+    dst[7] ^= ((uint)((ulong)src[8] << roffset) | (src[7] >> offset));
+#endif
+}
+
+/* 32-byte XOR of possibly unaligned memory to 4-byte aligned memory (iterated) */
+void neoscrypt_xor32_ua_it(void *restrict dstp, const void *restrict srcp,
+  uint offset, uint it) {
+    uint *dst = (uint *) dstp;
+    uint *src = (uint *) srcp;
     uint i;
 
-    for(i = 0; i < len; i++)
-      dst[i] ^= src[i];
+#if (VLIW) || (GCN)
+    offset = amd_bitalign(offset, offset, 29U);
+
+    it = amd_bitalign(it, it, 29U);
+
+    for(i = 0; i < it; i += 8) {
+        dst[i]     ^= amd_bitalign(src[i + 1], src[i],     offset);
+        dst[i + 1] ^= amd_bitalign(src[i + 2], src[i + 1], offset);
+        dst[i + 2] ^= amd_bitalign(src[i + 3], src[i + 2], offset);
+        dst[i + 3] ^= amd_bitalign(src[i + 4], src[i + 3], offset);
+        dst[i + 4] ^= amd_bitalign(src[i + 5], src[i + 4], offset);
+        dst[i + 5] ^= amd_bitalign(src[i + 6], src[i + 5], offset);
+        dst[i + 6] ^= amd_bitalign(src[i + 7], src[i + 6], offset);
+        dst[i + 7] ^= amd_bitalign(src[i + 8], src[i + 7], offset);
+    }
+#else
+    offset <<= 3;
+    uint roffset = 32U - offset;
+
+    it <<= 3;
+    for(i = 0; i < it; i += 8) {
+        dst[i]     ^= ((uint)((ulong)src[i + 1] << roffset) | (src[i]     >> offset));
+        dst[i + 1] ^= ((uint)((ulong)src[i + 2] << roffset) | (src[i + 1] >> offset));
+        dst[i + 2] ^= ((uint)((ulong)src[i + 3] << roffset) | (src[i + 2] >> offset));
+        dst[i + 3] ^= ((uint)((ulong)src[i + 4] << roffset) | (src[i + 3] >> offset));
+        dst[i + 4] ^= ((uint)((ulong)src[i + 5] << roffset) | (src[i + 4] >> offset));
+        dst[i + 5] ^= ((uint)((ulong)src[i + 6] << roffset) | (src[i + 5] >> offset));
+        dst[i + 6] ^= ((uint)((ulong)src[i + 7] << roffset) | (src[i + 6] >> offset));
+        dst[i + 7] ^= ((uint)((ulong)src[i + 8] << roffset) | (src[i + 7] >> offset));
+    }
+#endif
+}
+
+/* 32-byte XOR of 4-byte aligned memory to possibly unaligned memory */
+void neoscrypt_xor32_au(void *restrict dstp, const void *restrict srcp,
+  uint offset) {
+    uint *dst = (uint *) dstp;
+    uint *src = (uint *) srcp;
+    uint roffset;
+
+    /* OpenCL cannot shift uint by 32 to zero value */
+
+#if (VLIW)
+    offset = amd_bitalign(offset, offset, 29U);
+    roffset = 32U - offset;
+    uint mask = amd_bitalign(0U, ~0U, offset);
+
+    dst[0] ^= amd_bitalign(src[0], bitselect(0U,     src[0], mask), roffset);
+    dst[1] ^= amd_bitalign(src[1], bitselect(src[0], src[1], mask), roffset);
+    dst[2] ^= amd_bitalign(src[2], bitselect(src[1], src[2], mask), roffset);
+    dst[3] ^= amd_bitalign(src[3], bitselect(src[2], src[3], mask), roffset);
+    dst[4] ^= amd_bitalign(src[4], bitselect(src[3], src[4], mask), roffset);
+    dst[5] ^= amd_bitalign(src[5], bitselect(src[4], src[5], mask), roffset);
+    dst[6] ^= amd_bitalign(src[6], bitselect(src[5], src[6], mask), roffset);
+    dst[7] ^= amd_bitalign(src[7], bitselect(src[6], src[7], mask), roffset);
+    dst[8] ^= amd_bitalign(0U,     bitselect(src[7], 0U,     mask), roffset);
+#elif (GCN)
+    if(offset) {
+        /* 75% chance */
+        roffset = 32U - amd_bitalign(offset, offset, 29U);
+        dst[0] ^= amd_bitalign(src[0], 0U,     roffset);
+        dst[1] ^= amd_bitalign(src[1], src[0], roffset);
+        dst[2] ^= amd_bitalign(src[2], src[1], roffset);
+        dst[3] ^= amd_bitalign(src[3], src[2], roffset);
+        dst[4] ^= amd_bitalign(src[4], src[3], roffset);
+        dst[5] ^= amd_bitalign(src[5], src[4], roffset);
+        dst[6] ^= amd_bitalign(src[6], src[5], roffset);
+        dst[7] ^= amd_bitalign(src[7], src[6], roffset);
+        dst[8] ^= amd_bitalign(0U,     src[7], roffset);
+    } else {
+        /* 25% chance */
+        dst[0] ^= src[0];
+        dst[1] ^= src[1];
+        dst[2] ^= src[2];
+        dst[3] ^= src[3];
+        dst[4] ^= src[4];
+        dst[5] ^= src[5];
+        dst[6] ^= src[6];
+        dst[7] ^= src[7];
+    }
+#else
+    offset <<= 3;
+    roffset = 32U - offset;
+
+    dst[0] ^= (src[0] << offset);
+    dst[1] ^= ((src[1] << offset) | (uint)((ulong)src[0] >> roffset));
+    dst[2] ^= ((src[2] << offset) | (uint)((ulong)src[1] >> roffset));
+    dst[3] ^= ((src[3] << offset) | (uint)((ulong)src[2] >> roffset));
+    dst[4] ^= ((src[4] << offset) | (uint)((ulong)src[3] >> roffset));
+    dst[5] ^= ((src[5] << offset) | (uint)((ulong)src[4] >> roffset));
+    dst[6] ^= ((src[6] << offset) | (uint)((ulong)src[5] >> roffset));
+    dst[7] ^= ((src[7] << offset) | (uint)((ulong)src[6] >> roffset));
+    dst[8] ^= (uint)((ulong)src[7] >> roffset);
+#endif
 }
 
 void neoscrypt_copy256(void *restrict dstp, const void *restrict srcp) {
@@ -149,12 +362,20 @@ void neoscrypt_swap256(void *restrict blkAp, void *restrict blkBp) {
 /* BLAKE2s */
 
 /* Initialisation vector */
+#if (OLD_VLIW)
+const __constant uint8 blake2s_IV4[1] = {
+#else
 static const __constant uint8 blake2s_IV4[1] = {
+#endif
     (uint8)(0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
             0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19)
 };
 
+#if (OLD_VLIW)
+const __constant uchar blake2s_sigma[10][16] = {
+#else
 static const __constant uchar blake2s_sigma[10][16] = {
+#endif
     {  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 } ,
     { 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 } ,
     { 11,  8, 12,  0,  5,  2, 15, 13, 10, 14,  3,  6,  7,  1,  9,  4 } ,
@@ -179,23 +400,23 @@ static const __constant uchar blake2s_sigma[10][16] = {
 
 #define G1(x, a, b, c, d) \
     a += b + (uint4)(m[blake2s_sigma[x][0]], m[blake2s_sigma[x][2]], m[blake2s_sigma[x][4]], m[blake2s_sigma[x][6]]); \
-    d = rotate(d ^ a, V16); \
+    d = rotate(d ^ a, (uint4)(16, 16, 16, 16)); \
     c += d; \
-    b = rotate(b ^ c, V20); \
+    b = rotate(b ^ c, (uint4)(20, 20, 20, 20)); \
     a += b + (uint4)(m[blake2s_sigma[x][1]], m[blake2s_sigma[x][3]], m[blake2s_sigma[x][5]], m[blake2s_sigma[x][7]]); \
-    d = rotate(d ^ a, V24); \
+    d = rotate(d ^ a, (uint4)(24, 24, 24, 24)); \
     c += d; \
-    b = rotate(b ^ c, V25);
+    b = rotate(b ^ c, (uint4)(25, 25, 25, 25));
 
 #define G2(x, a, b, c, d) \
     a += b + (uint4)(m[blake2s_sigma[x][8]], m[blake2s_sigma[x][10]], m[blake2s_sigma[x][12]], m[blake2s_sigma[x][14]]); \
-    d = rotate(d ^ a, V16); \
+    d = rotate(d ^ a, (uint4)(16, 16, 16, 16)); \
     c += d; \
-    b = rotate(b ^ c, V20); \
+    b = rotate(b ^ c, (uint4)(20, 20, 20, 20)); \
     a += b + (uint4)(m[blake2s_sigma[x][9]], m[blake2s_sigma[x][11]], m[blake2s_sigma[x][13]], m[blake2s_sigma[x][15]]); \
-    d = rotate(d ^ a, V24); \
+    d = rotate(d ^ a, (uint4)(24, 24, 24, 24)); \
     c += d; \
-    b = rotate(b ^ c, V25);
+    b = rotate(b ^ c, (uint4)(25, 25, 25, 25));
 
 
 /* Salsa20/20 */
@@ -219,14 +440,14 @@ static const __constant uchar blake2s_sigma[10][16] = {
     Y.se ^= rotate(Y.sd + Y.sc, 13U); Y.sf ^= rotate(Y.se + Y.sd, 18U);
 
 #define SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3) \
-    Y0 ^= rotate(Y3 + Y2, V7);  \
-    Y1 ^= rotate(Y0 + Y3, V9);  \
-    Y2 ^= rotate(Y1 + Y0, V13); \
-    Y3 ^= rotate(Y2 + Y1, V18); \
-    Y2 ^= rotate(Y3.wxyz + Y0.zwxy, V7);  \
-    Y1 ^= rotate(Y2.wxyz + Y3.zwxy, V9);  \
-    Y0 ^= rotate(Y1.wxyz + Y2.zwxy, V13); \
-    Y3 ^= rotate(Y0.wxyz + Y1.zwxy, V18);
+    Y0 ^= rotate(Y3 + Y2, (uint4)( 7,  7,  7,  7)); \
+    Y1 ^= rotate(Y0 + Y3, (uint4)( 9,  9,  9,  9)); \
+    Y2 ^= rotate(Y1 + Y0, (uint4)(13, 13, 13, 13)); \
+    Y3 ^= rotate(Y2 + Y1, (uint4)(18, 18, 18, 18)); \
+    Y2 ^= rotate(Y3.wxyz + Y0.zwxy, (uint4)( 7,  7,  7,  7)); \
+    Y1 ^= rotate(Y2.wxyz + Y3.zwxy, (uint4)( 9,  9,  9,  9)); \
+    Y0 ^= rotate(Y1.wxyz + Y2.zwxy, (uint4)(13, 13, 13, 13)); \
+    Y3 ^= rotate(Y0.wxyz + Y1.zwxy, (uint4)(18, 18, 18, 18));
 
 uint16 neoscrypt_salsa(uint16 X) {
     uint i;
@@ -235,11 +456,17 @@ uint16 neoscrypt_salsa(uint16 X) {
 
     uint16 Y = X;
 
-#if (SALSA_UNROLL_LEVEL == 2)
+#if (SALSA_UNROLL_LEVEL == 1)
+
+    for(i = 0; i < 10; i++) {
+        SALSA_CORE_SCALAR(Y);
+    }
+
+#elif (SALSA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
-        SALSA_CORE_SCALAR(Y0, Y1, Y2, Y3);
-        SALSA_CORE_SCALAR(Y0, Y1, Y2, Y3);
+        SALSA_CORE_SCALAR(Y);
+        SALSA_CORE_SCALAR(Y);
     }
 
 #elif (SALSA_UNROLL_LEVEL == 3)
@@ -282,7 +509,13 @@ uint16 neoscrypt_salsa(uint16 X) {
     uint4 Y2 = (uint4)(X.sc, X.s1, X.s6, X.sb);
     uint4 Y3 = (uint4)(X.s0, X.s5, X.sa, X.sf);
 
-#if (SALSA_UNROLL_LEVEL == 2)
+#if (SALSA_UNROLL_LEVEL == 1)
+
+    for(i = 0; i < 10; i++) {
+        SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+    }
+
+#elif (SALSA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
         SALSA_CORE_VECTOR(Y0, Y1, Y2, Y3);
@@ -364,14 +597,14 @@ uint16 neoscrypt_salsa(uint16 X) {
     Y.s9 += Y.se; Y.s4 = rotate(Y.s4 ^ Y.s9, 7U);
 
 #define CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3) \
-    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, V16); \
-    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, V12); \
-    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, V8);  \
-    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, V7);  \
-    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, V16); \
-    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, V12); \
-    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, V8);  \
-    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, V7);
+    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, (uint4)(16, 16, 16, 16)); \
+    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, (uint4)(12, 12, 12, 12)); \
+    Y0 += Y1; Y3 = rotate(Y3 ^ Y0, (uint4)( 8,  8,  8,  8)); \
+    Y2 += Y3; Y1 = rotate(Y1 ^ Y2, (uint4)( 7,  7,  7,  7)); \
+    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, (uint4)(16, 16, 16, 16)); \
+    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, (uint4)(12, 12, 12, 12)); \
+    Y0 += Y1.yzwx; Y3 = rotate(Y3 ^ Y0.yzwx, (uint4)( 8,  8,  8,  8)); \
+    Y2 += Y3.yzwx; Y1 = rotate(Y1 ^ Y2.yzwx, (uint4)( 7,  7,  7,  7));
 
 uint16 neoscrypt_chacha(uint16 X) {
     uint i;
@@ -380,7 +613,13 @@ uint16 neoscrypt_chacha(uint16 X) {
 
     uint16 Y = X;
 
-#if (CHACHA_UNROLL_LEVEL == 2)
+#if (CHACHA_UNROLL_LEVEL == 1)
+
+    for(i = 0; i < 10; i++) {
+        CHACHA_CORE_SCALAR(Y);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
         CHACHA_CORE_SCALAR(Y);
@@ -424,7 +663,13 @@ uint16 neoscrypt_chacha(uint16 X) {
 
     uint4 Y0 = X.s0123, Y1 = X.s4567, Y2 = X.s89ab, Y3 = X.scdef;
 
-#if (CHACHA_UNROLL_LEVEL == 2)
+#if (CHACHA_UNROLL_LEVEL == 1)
+
+    for(i = 0; i < 10; i++) {
+        CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
+    }
+
+#elif (CHACHA_UNROLL_LEVEL == 2)
 
     for(i = 0; i < 5; i++) {
         CHACHA_CORE_VECTOR(Y0, Y1, Y2, Y3);
@@ -480,37 +725,37 @@ uint16 neoscrypt_chacha(uint16 X) {
 
 
 /* FastKDF, a fast buffered key derivation function;
- * this algorithm makes extensive use of bytewise operations
- * which may not do the best for GPUs especially VLIW powered */
-static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ,
+ * this algorithm makes extensive use of bytewise operations */
+static void neoscrypt_fastkdf(__global const uint4 *input, ulong16 *XZ,
   __local uint16 *L, const uint glbid, const uint lclid, uint mode) {
 
     /* FastKDF needs 256 + 64 bytes for the password buffer,
      * 256 + 32 bytes for the salt buffer, 64 + 64 + 32 bytes for BLAKE2s */
 
-    uint i, j, bufptr, out_len;
+    uint i, bufptr, offset;
 
     const uint4 mod = (uint4)(input[4].x, input[4].y, input[4].z, glbid);
 
-    uint16 *XZh = (uint16 *) &XZ[0];
-    uint4  *XZq = (uint4 *)  &XZ[0];
+    uint4 *XZq = (uint4 *) &XZ[0];
 
     /* Password buffer */
-    uchar *Aa = (uchar *) &XZh[0];
+    uchar *Aa = (uchar *) &XZq[0];
     /* Salt buffer */
-    uchar *Bb = (uchar *) &XZh[5];
+    uchar *Bb = (uchar *) &XZq[20];
     /* BLAKE2s temp buffer */
     uint8 *T = (uint8 *)  &XZq[38];
     uint4 *t = (uint4 *)  &XZq[38];
     /* BLAKE2s memory space */
-     __local uint *m = (__local uint *) &L[lclid];
+    __local uint *m = (__local uint *) &L[lclid];
 
     /* Mode 0 (extend) and mode 1 (compress) */
 
     /* Salt buffer */
     if(!mode) {
-        out_len = 256;
-        XZh[5]  = ((__global const uint16 *) input)[0];
+        XZq[20] = input[0];
+        XZq[21] = input[1];
+        XZq[22] = input[2];
+        XZq[23] = input[3];
         XZq[24] = mod;
         XZq[25] = input[0];
         XZq[26] = input[1];
@@ -526,17 +771,16 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         XZq[36] = input[0];
         XZq[37] = input[1];
     } else {
-        out_len = 32;
-        XZh[5]  = XZh[0];
-        XZh[6]  = XZh[1];
-        XZh[7]  = XZh[2];
-        XZh[8]  = XZh[3];
+        neoscrypt_copy256(&XZq[20], &XZq[0]);
         XZq[36] = XZq[0];
         XZq[37] = XZq[1];
     }
 
     /* Password buffer */
-    XZh[0]  = ((__global const uint16 *) input)[0];
+    XZq[0]  = input[0];
+    XZq[1]  = input[1];
+    XZq[2]  = input[2];
+    XZq[3]  = input[3];
     XZq[4]  = mod;
     XZq[5]  = input[0];
     XZq[6]  = input[1];
@@ -560,7 +804,9 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         /* BLAKE2s state block */
         uint16 S;
 
-        neoscrypt_blcopy(&L[lclid], &Bb[bufptr], 32);
+        offset = bufptr & 0x03;
+        neoscrypt_lcopy32(&L[lclid], &Bb[bufptr - offset], offset);
+
         m[8]  = 0;
         m[9]  = 0;
         m[10] = 0;
@@ -581,7 +827,7 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         for(uint z = 0; z < 2; z++) {
 
 #pragma unroll
-            for(j = 0; j < 10; j++) {
+            for(uint j = 0; j < 10; j++) {
 #if (BLAKE2S_SCALAR)
                 G(j,  0, S.s0, S.s4, S.s8, S.sc);
                 G(j,  2, S.s1, S.s5, S.s9, S.sd);
@@ -606,14 +852,14 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
             S.sc ^= 128;
             S.se ^= 0xFFFFFFFFU;
 
-            neoscrypt_blcopy(&L[lclid], &Aa[bufptr], 64);
+            neoscrypt_lcopy64(&L[lclid], &Aa[bufptr - offset], offset);
 
         }
 
 #else
 
 #pragma unroll
-        for(j = 0; j < 10; j++) {
+        for(uint j = 0; j < 10; j++) {
 #if (BLAKE2S_SCALAR)
             G(j,  0, S.s0, S.s4, S.s8, S.sc);
             G(j,  2, S.s1, S.s5, S.s9, S.sd);
@@ -636,10 +882,11 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         S.sc ^= 128;
         S.se ^= 0xFFFFFFFFU;
 
-        neoscrypt_blcopy(&L[lclid], &Aa[bufptr], 64);
+        neoscrypt_lcopy64(&L[lclid], &Aa[bufptr - offset], offset);
 
 #pragma unroll
-        for(j = 0; j < 10; j++) {
+        for(uint j = 0; j < 10; j++) {
+#if (BLAKE2S_SCALAR)
             G(j,  0, S.s0, S.s4, S.s8, S.sc);
             G(j,  2, S.s1, S.s5, S.s9, S.sd);
             G(j,  4, S.s2, S.s6, S.sa, S.se);
@@ -648,6 +895,10 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
             G(j, 10, S.s1, S.s6, S.sb, S.sc);
             G(j, 12, S.s2, S.s7, S.s8, S.sd);
             G(j, 14, S.s3, S.s4, S.s9, S.se);
+#else
+            G1(j, S.s0123, S.s4567, S.s89ab, S.scdef);
+            G2(j, S.s0123, S.s5674, S.sab89, S.sfcde);
+#endif
         }
 
 #endif /* BLAKE2S_COMPACT */
@@ -694,47 +945,65 @@ static void neoscrypt_fastkdf(__global const uint4 *input, __private ulong16 *XZ
         bufptr += rotate(temp.s7, 16U);
         bufptr += rotate(temp.s7, 8U);
 
-        bufptr &= 0xFF;
+        bufptr = convert_uchar(bufptr);
 #else
         uint4 temp;
         temp  = t[0];
-        temp += rotate(t[0], V24);
-        temp += rotate(t[0], V16);
-        temp += rotate(t[0], V8);
+        temp += rotate(t[0], (uint4)(24, 24, 24, 24));
+        temp += rotate(t[0], (uint4)(16, 16, 16, 16));
+        temp += rotate(t[0], (uint4)( 8,  8,  8,  8));
         temp += t[1];
-        temp += rotate(t[1], V24);
-        temp += rotate(t[1], V16);
-        temp += rotate(t[1], V8);
+        temp += rotate(t[1], (uint4)(24, 24, 24, 24));
+        temp += rotate(t[1], (uint4)(16, 16, 16, 16));
+        temp += rotate(t[1], (uint4)( 8,  8,  8,  8));
 
-        bufptr = (temp.x + temp.y + temp.z + temp.w) & 0xFF;
+        bufptr = convert_uchar(temp.x + temp.y + temp.z + temp.w);
 #endif
 
         /* Modify the salt buffer */
-        neoscrypt_bxor(&Bb[bufptr], &T[0], 32);
+        offset = bufptr & 0x03;
+        neoscrypt_xor32_au(&Bb[bufptr - offset], &T[0], offset);
 
-        /* Head modified, tail updated */
-        if(bufptr < 32)
-          neoscrypt_bcopy(&Bb[256 + bufptr], &Bb[bufptr], 32 - bufptr);
+#if (OLD_VLIW) || (VLIW)
+        /* Head modified, full copy to tail */
+        if(bufptr < 32U) {
+            XZq[36] = XZq[20];
+            XZq[37] = XZq[21];
+            continue;
+        }
 
-        /* Tail modified, head updated */
-        if(bufptr > 224)
-          neoscrypt_bcopy(&Bb[0], &Bb[256], bufptr - 224);
+        /* Tail modified, full copy to head */
+        if(bufptr > 224U) {
+            XZq[20] = XZq[36];
+            XZq[21] = XZq[37];
+        }
+#else
+        /* Head modified, 4-byte aligned copy to tail */
+        if(bufptr < 32U) {
+            neoscrypt_copy4(&Bb[256 + bufptr - offset], &Bb[bufptr - offset], 32U - bufptr + offset);
+            continue;
+        }
+
+        /* Tail modified, 4-byte aligned copy to head */
+        if(bufptr > 224U) {
+            neoscrypt_copy4(&Bb[0], &Bb[256], bufptr - 224U + (4U - offset));
+        }
+#endif
 
     }
 
     /* XOR into the password */
-    i = 256 - bufptr;
-    if(i >= out_len) {
-        neoscrypt_bxor(&Aa[0], &Bb[bufptr], out_len);
+    if(mode) {
+        neoscrypt_xor32_ua(&Aa[0], &Bb[bufptr - offset], offset);
     } else {
-        neoscrypt_bxor(&Aa[0], &Bb[bufptr], i);
-        neoscrypt_bxor(&Aa[i], &Bb[0], out_len - i);
+        i = (256 - bufptr + 31) >> 5;
+        neoscrypt_xor32_ua_it(&Aa[0], &Bb[bufptr - offset], offset, i);
+        neoscrypt_xor32_ua_it(&Aa[i << 5], &Bb[(bufptr & 0x1FU) - offset], offset, 8U - i);
     }
 
 }
 
 
-__kernel __attribute__((vec_type_hint(uint4)))
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void search(__global const uint4 *restrict input, __global uint *restrict output,
   __global ulong16 *globalcache, const uint target) {
@@ -742,9 +1011,8 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
 
     uint glbid = get_global_id(0);
     uint grpid = get_group_id(0);
-    __global ulong16 *G = (__global ulong16 *) &globalcache[(grpid * WORKSIZE) << 8];
+    __global ulong16 *G = (__global ulong16 *) &globalcache[mul24(grpid, (uint)(WORKSIZE << 8))];
 
-    uint lsize = WORKSIZE;
     uint lclid = glbid & (WORKSIZE - 1);
     __local uint16 L[WORKSIZE];
 
@@ -775,7 +1043,7 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
             for(j = 0; j < 128; j++) {
 
                 /* blkcpy(G, X) */
-                k = (j * lsize + lclid) << 1;
+                k = rotate(mad24(j, (uint)WORKSIZE, lclid), 1U);
                 G[k]     = XZ[0];
                 G[k + 1] = XZ[1];
 
@@ -807,7 +1075,7 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
             for(j = 0; j < 128; j++) {
 
                 /* integerify(X) mod N */
-                k = (convert_uchar(((uint *) XZ)[48] & 0x7F) * lsize + lclid) << 1;
+                k = rotate(mad24((((uint *) XZ)[48] & 0x7F), (uint)WORKSIZE, lclid), 1U);
 
                 /* blkxor(X, G) */
                 XZ[0] ^= G[k];
