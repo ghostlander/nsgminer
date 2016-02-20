@@ -150,10 +150,11 @@ static bool prepare_adl(void)
 #else
 	hDLL = dlopen( "libatiadlxx.so", RTLD_LAZY|RTLD_GLOBAL);
 #endif
-	if (hDLL == NULL) {
-		applog(LOG_INFO, "Unable to load ati adl library");
-		return false;
-	}
+    if(!hDLL) {
+        applog(LOG_INFO, "Unable to load the AMD Display Library");
+        return(false);
+    }
+
 	ADL_Main_Control_Create = (ADL_MAIN_CONTROL_CREATE) GetProcAddress(hDLL,"ADL_Main_Control_Create");
 	ADL_Main_Control_Destroy = (ADL_MAIN_CONTROL_DESTROY) GetProcAddress(hDLL,"ADL_Main_Control_Destroy");
 	ADL_Adapter_NumberOfAdapters_Get = (ADL_ADAPTER_NUMBEROFADAPTERS_GET) GetProcAddress(hDLL,"ADL_Adapter_NumberOfAdapters_Get");

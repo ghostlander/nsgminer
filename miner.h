@@ -4,6 +4,7 @@
  * Copyright 2012-2013 Andrew Smith
  * Copyright 2011 Glenn Francis Murray
  * Copyright 2010-2011 Jeff Garzik
+ * Copyright 2015-2016 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -107,6 +108,17 @@ static inline int fsync (int fd)
 #ifdef HAVE_ADL
  #include "ADL/adl_sdk.h"
 #endif
+
+#ifdef HAVE_NVML
+#if defined(__linux__) || defined(_WIN32)
+#include "NVML/nvml.h"
+#endif
+extern void nvml_init();
+extern void nvml_gpu_temp_and_fanspeed(const uint, float *, int *);
+extern void nvml_print_devices();
+extern void nvml_shutdown();
+#endif
+
 
 #ifdef HAVE_LIBUSB
   #include <libusb.h>
@@ -495,6 +507,11 @@ struct cgpu_info {
 	int gpu_powertune;
 	float gpu_vddc;
 #endif
+
+#ifdef HAVE_NVML
+    bool has_nvml;
+#endif
+
 	double diff_accepted;
 	double diff_rejected;
 	int last_share_pool;

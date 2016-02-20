@@ -2,7 +2,7 @@
 # Copyright 2012 zefir
 # Copyright 2011-2013 Con Kolivas
 # Copyright 2013 James Z.M. Gao
-# Copyright 2015 John Doering
+# Copyright 2015-2016 John Doering
 #
 # This program is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by the Free
@@ -113,6 +113,7 @@ nsgminer_SOURCES += driver-opencl.h driver-opencl.c
 # the original GPU related sources, unchanged
 nsgminer_SOURCES += ocl.c ocl.h findnonce.c findnonce.h
 nsgminer_SOURCES += adl.c adl.h adl_functions.h
+nsgminer_SOURCES += nvml.c
 nsgminer_SOURCES += *.cl
 
 # NeoScrypt and Scrypt dependency

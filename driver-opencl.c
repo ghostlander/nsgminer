@@ -2,7 +2,7 @@
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2010 Jeff Garzik
- * Copyright 2015 John Doering
+ * Copyright 2015-2016 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -44,7 +44,10 @@
 #include "driver-opencl.h"
 #include "findnonce.h"
 #include "ocl.h"
+
+#ifdef HAVE_ADL
 #include "adl.h"
+#endif
 
 /* TODO: cleanup externals ********************/
 
@@ -271,7 +274,11 @@ extern bool ping;
 extern bool opt_loginput;
 extern char *opt_kernel_path;
 extern int gpur_thr_id;
+
+extern uint opencl_devnum;
+
 extern bool opt_noadl;
+extern bool opt_nonvml;
 extern bool have_opencl;
 
 
@@ -813,8 +820,22 @@ char *print_ndevs_and_exit(int *ndevs)
 {
 	opt_log_output = true;
 	opencl_api.api_detect();
-	clear_adl(*ndevs);
-	applog(LOG_INFO, "%i GPU devices max detected", *ndevs);
+    applog(LOG_INFO, "%u OpenCL GPU device%s detected\n",
+      opencl_devnum, (opencl_devnum != 1) ? "s" : "");
+#if HAVE_ADL
+    if(!opt_noadl) { 
+        init_adl(*ndevs);
+        clear_adl(*ndevs);
+    }
+#endif
+#if HAVE_NVML
+    if(!opt_nonvml)
+      nvml_init();
+    if(!opt_nonvml) {
+        nvml_print_devices();
+        nvml_shutdown();
+    }
+#endif
 	exit(*ndevs);
 }
 #endif
@@ -979,7 +1000,12 @@ retry:
 		wlog("\n");
 	}
 
-	wlogprint("[E]nable [D]isable [I]ntensity [R]estart GPU %s\n",adl_active ? "[C]hange settings" : "");
+#if HAVE_ADL
+    wlogprint("[E]nable [D]isable [I]ntensity [R]estart GPU %s\n",
+      adl_active ? "[C]hange settings" : "");
+#else
+    wlogprint("[E]nable [D]isable [I]ntensity [R]estart GPU\n");
+#endif
 
 	wlogprint("Or press any other key to continue\n");
 	input = getch();
@@ -1097,6 +1123,7 @@ retry:
 		wlogprint("Attempting to restart threads of GPU %d\n", selected);
 		reinit_device(&gpus[selected]);
 		goto retry;
+#if HAVE_ADL
 	} else if (adl_active && (!strncasecmp(&input, "c", 1))) {
 		if (selected)
 			selected = curses_int("Select GPU to change settings on");
@@ -1106,6 +1133,7 @@ retry:
 		}
 		change_gpusettings(selected);
 		goto retry;
+#endif
 	} else
 		clear_logwin();
 
@@ -1546,8 +1574,6 @@ static void opencl_detect()
 		add_cgpu(cgpu);
 	}
 
-	if (!opt_noadl)
-		init_adl(nDevs);
 }
 
 static void reinit_opencl_device(struct cgpu_info *gpu)
@@ -1555,10 +1581,11 @@ static void reinit_opencl_device(struct cgpu_info *gpu)
 	tq_push(thr_info[gpur_thr_id].q, gpu);
 }
 
+
+static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu) {
+
 #ifdef HAVE_ADL
-static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
-{
-	if (gpu->has_adl) {
+    if(!opt_noadl && gpu->has_adl) {
 		int gpuid = gpu->device_id;
 		float gt = gpu_temp(gpuid);
 		int gf = gpu_fanspeed(gpuid);
@@ -1576,11 +1603,35 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu)
 		else
 			tailsprintf(buf, "        ");
 		tailsprintf(buf, "| ");
-	}
-	else
-		tailsprintf(buf, "               | ");
-}
+        return;
+    }
 #endif
+
+#ifdef HAVE_NVML
+    if(!opt_nonvml && gpu->has_nvml) {
+        int gpuid = gpu->device_id, fanspeed;
+        float temp;
+
+        nvml_gpu_temp_and_fanspeed(gpuid, &temp, &fanspeed);
+
+        if(temp > 0.0)
+          tailsprintf(buf, "%5.1fC ", temp);
+        else
+          tailsprintf(buf, "       ");
+
+        if(fanspeed > 0)
+          tailsprintf(buf, "%4dRPM ", fanspeed > 9999 ? 9999 : fanspeed);
+        else
+          tailsprintf(buf, "        ");
+
+        tailsprintf(buf, "| ");
+        return;
+    }
+#endif
+
+    /* Keep empty */ 
+    tailsprintf(buf, "               | ");
+}
 
 static struct api_data*
 get_opencl_api_extra_device_status(struct cgpu_info *gpu)
@@ -1934,9 +1985,7 @@ struct device_api opencl_api = {
 	.name = "OCL",
 	.api_detect = opencl_detect,
 	.reinit_device = reinit_opencl_device,
-#ifdef HAVE_ADL
 	.get_statline_before = get_opencl_statline_before,
-#endif
 	.get_api_extra_device_status = get_opencl_api_extra_device_status,
 	.thread_prepare = opencl_thread_prepare,
 	.thread_init = opencl_thread_init,

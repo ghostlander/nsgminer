@@ -207,6 +207,19 @@ if test "x$adl" = xyes; then
 	fi
 fi
 
+nvml="yes"
+
+AC_ARG_ENABLE([nvml],
+	[AC_HELP_STRING([--disable-nvml],[Build with no NVML GPU monitoring (default enabled)])],
+	[nvml=$enableval]
+	)
+if test "x$nvml" = xyes; then
+	nvml="$opencl"
+	if test "x$opencl" = xyes; then
+		AC_DEFINE([HAVE_NVML], [1], [Defined if the NVML header was found])
+	fi
+fi
+
 
 AC_ARG_ENABLE([bitforce],
 	[AC_HELP_STRING([--enable-bitforce],[Add support for BitForce FPGAs (default disabled)])],
@@ -689,6 +702,14 @@ elif test "x$opencl" = xyes; then
 	echo "    ADL monitoring.....: Disabled"
 else
 	echo "    ADL monitoring.....: n/a"
+fi
+
+if test "x$nvml" = xyes; then
+	echo "    NVML monitoring....: Enabled"
+elif test "x$opencl" = xyes; then
+	echo "    NVML monitoring....: Disabled"
+else
+	echo "    NVML monitoring....: n/a"
 fi
 
 echo

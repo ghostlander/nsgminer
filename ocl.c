@@ -37,6 +37,19 @@
 #include "findnonce.h"
 #include "ocl.h"
 
+extern uint opencl_devnum;
+
+extern bool opt_noadl;
+extern bool opt_nonvml;
+
+#if HAVE_ADL
+#include "adl.h"
+extern bool adl_active;
+#endif
+#if HAVE_NVML
+extern bool nvml_active;
+#endif
+
 /* Platform API */
 extern
 CL_API_ENTRY cl_int CL_API_CALL
@@ -280,6 +293,7 @@ int clDevicesNum(void) {
 		return -1;
 	}
 
+    opencl_devnum = 0;
 	for (i = 0; i < numPlatforms; i++) {
 		status = clGetPlatformInfo( platforms[i], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
 		if (status != CL_SUCCESS) {
@@ -287,13 +301,13 @@ int clDevicesNum(void) {
 			return -1;
 		}
 		platform = platforms[i];
-		applog(LOG_INFO, "CL Platform %d vendor: %s", i, pbuff);
+        applog(LOG_INFO, "OpenCL platform %u vendor: %s", i, pbuff);
 		status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
 		if (status == CL_SUCCESS)
-			applog(LOG_INFO, "CL Platform %d name: %s", i, pbuff);
+        applog(LOG_INFO, "OpenCL platform %u name: %s", i, pbuff);
 		status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(pbuff), pbuff, NULL);
 		if (status == CL_SUCCESS)
-			applog(LOG_INFO, "CL Platform %d version: %s", i, pbuff);
+        applog(LOG_INFO, "OpenCL platform %d version: %s", i, pbuff);
 		status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error %d: Getting Device IDs (num)", status);
@@ -301,7 +315,8 @@ int clDevicesNum(void) {
 				continue;
 			return -1;
 		}
-		applog(LOG_INFO, "Platform %d devices: %d", i, numDevices);
+        opencl_devnum += (uint)numDevices;
+        applog(LOG_INFO, "Platform %u devices: %u", i, (uint)numDevices);
 		if (numDevices > most_devices) {
 			most_devices = numDevices;
 			mdplatform = i;
@@ -314,7 +329,7 @@ int clDevicesNum(void) {
 			clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, numDevices, devices, NULL);
 			for (j = 0; j < numDevices; j++) {
 				clGetDeviceInfo(devices[j], CL_DEVICE_NAME, sizeof(pbuff), pbuff, NULL);
-				applog(LOG_INFO, "\t%i\t%s", j, pbuff);
+                applog(LOG_INFO, "\t%i\t%s%s", j, pbuff, (j + 1 == numDevices) ? "\n" : "");
 			}
 			free(devices);
 		}
@@ -397,6 +412,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	cl_uint numPlatforms;
 	cl_uint numDevices;
 	cl_int status;
+    bool amd_platform = false, nvidia_platform = false;
 
 	status = clGetPlatformIDs(0, NULL, &numPlatforms);
 	if (status != CL_SUCCESS) {
@@ -428,13 +444,16 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		return NULL;
 	}
 
-	applog(LOG_INFO, "CL Platform vendor: %s", pbuff);
-	status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
-	if (status == CL_SUCCESS)
-		applog(LOG_INFO, "CL Platform name: %s", pbuff);
-	status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(vbuff), vbuff, NULL);
-	if (status == CL_SUCCESS)
-		applog(LOG_INFO, "CL Platform version: %s", vbuff);
+    applog(LOG_INFO, "OpenCL platform vendor: %s", pbuff);
+    status = clGetPlatformInfo(platform, CL_PLATFORM_NAME, sizeof(pbuff), pbuff, NULL);
+    if(status == CL_SUCCESS) {
+        applog(LOG_INFO, "OpenCL platform name: %s", pbuff);
+        amd_platform = ((strstr(pbuff, "ATI") > 0) || (strstr(pbuff, "AMD") > 0));
+        nvidia_platform = strstr(pbuff, "NVIDIA") > 0;
+    }
+    status = clGetPlatformInfo(platform, CL_PLATFORM_VERSION, sizeof(vbuff), vbuff, NULL);
+    if(status == CL_SUCCESS)
+      applog(LOG_INFO, "OpenCL platform version: %s", vbuff);
 
 	status = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, NULL, &numDevices);
 	if (status != CL_SUCCESS) {
@@ -481,6 +500,29 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		}
 
 	} else return NULL;
+
+#ifdef HAVE_ADL
+    if(amd_platform && !opt_noadl && !adl_active) {
+        init_adl(nDevs);
+        adl_active = true;
+    }
+#endif
+
+#ifdef HAVE_NVML
+    if(nvidia_platform) {
+        if(!opt_nonvml) {
+            if(!nvml_active) {
+                nvml_init();
+                nvml_active = true;
+            }
+            cgpu->has_nvml = true;
+            applog(LOG_INFO, "Activated NVIDIA management for GPU %u", gpu);
+        } else {
+            cgpu->has_nvml = false;
+            applog(LOG_INFO, "Disabled NVIDIA management for GPU %u", gpu);
+        }
+    }
+#endif
 
 	cl_context_properties cps[3] = { CL_CONTEXT_PLATFORM, (cl_context_properties)platform, 0 };
 

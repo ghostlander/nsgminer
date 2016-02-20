@@ -57,10 +57,13 @@
 #include "compat.h"
 #include "miner.h"
 #include "findnonce.h"
-#include "adl.h"
 #include "driver-cpu.h"
 #include "driver-opencl.h"
 #include "bench_block.h"
+
+#ifdef HAVE_ADL
+#include "adl.h"
+#endif
 
 #if (USE_NEOSCRYPT) || (USE_SCRYPT)
 #include "neoscrypt.h"
@@ -134,6 +137,7 @@ unsigned long long global_hashrate;
 
 #ifdef HAVE_OPENCL
 int opt_dynamic_interval = 7;
+uint opencl_devnum;
 int nDevs;
 int opt_g_threads = 2;
 int gpu_threads;
@@ -167,7 +171,16 @@ static int opt_submit_threads = 0x40;
 bool opt_fail_only;
 bool opt_autofan;
 bool opt_autoengine;
+
 bool opt_noadl;
+bool opt_nonvml;
+#if HAVE_ADL
+bool adl_active = false;
+#endif
+#if HAVE_NVML
+bool nvml_active = false;
+#endif
+
 char *opt_api_allow = NULL;
 char *opt_api_groups;
 char *opt_api_description = PACKAGE_STRING;
@@ -1262,6 +1275,14 @@ static struct opt_table opt_config_table[] = {
 			opt_hidden
 #endif
 			),
+    OPT_WITHOUT_ARG("--no-nvml",
+      opt_set_bool, &opt_nonvml,
+#ifdef HAVE_NVML
+      "Disable the NVIDIA Managment Library used for monitoring GPU parameters"
+#else
+      opt_hidden
+#endif
+      ),
 	OPT_WITHOUT_ARG("--no-gbt",
 			opt_set_invbool, &want_gbt,
 			"Disable getblocktemplate support"),
@@ -7585,9 +7606,6 @@ void print_summary(void)
 
 static void clean_up(void)
 {
-#ifdef HAVE_OPENCL
-	clear_adl(nDevs);
-#endif
 #ifdef HAVE_LIBUSB
 	if (likely(have_libusb))
         libusb_exit(NULL);
@@ -7604,6 +7622,17 @@ static void clean_up(void)
 		free(cpus);
 
 	curl_global_cleanup();
+
+#ifdef HAVE_OPENCL
+#ifdef HAVE_ADL
+    if(adl_active)
+      clear_adl(nDevs);
+#endif
+#ifdef HAVE_NVML
+    if(nvml_active)
+      nvml_shutdown();
+#endif
+#endif
 }
 
 void quit(int status, const char *format, ...)
