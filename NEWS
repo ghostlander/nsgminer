@@ -1,3 +1,9 @@
+NSGminer v0.9.2 - 20th of February 2016
+- NeoScrypt OpenCL kernel v7;
+- optional use of the NVIDIA Management Library;
+- correct work utility calculation
+
+
 NSGminer v0.9.1 - 16th of January 2016
 - NeoScrypt OpenCL kernel v6;
 - block hash calculation for display purposes fixed;
