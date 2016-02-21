@@ -46,7 +46,8 @@
 (__Oland__) || (__Hainan__) || \
 (__Hawaii__) || (__Bonaire__) || \
 (__Kalindi__) || (__Mullins__) || (__Spectre__) || (__Spooky__) || \
-(__Tonga__) || (__Iceland__)
+(__Tonga__) || (__Iceland__) || \
+(__Fiji__) || (__Carrizo__)
 /* AMD Graphics Core Next based GPUs and APUs */
 #define GCN 1
 #endif
