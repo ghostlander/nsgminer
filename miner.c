@@ -1305,9 +1305,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--no-submit-stale",
 			opt_set_invbool, &opt_submit_stale,
 		        "Don't submit shares if they are detected as stale"),
-	OPT_WITH_ARG("--pass|-p",
-		     set_pass, NULL, NULL,
-		     "Password for bitcoin JSON-RPC server"),
+    OPT_WITH_ARG("--pass|-p",
+      set_pass, NULL, NULL,
+      "Password for a JSON-RPC server"),
 	OPT_WITHOUT_ARG("--per-device-stats",
 			opt_set_bool, &want_per_device_stats,
 			"Force verbose mode and output per-device statistics"),
@@ -1426,12 +1426,12 @@ static struct opt_table opt_config_table[] = {
 		     set_thread_concurrency, NULL, NULL,
 		     "Set GPU thread concurrency for scrypt mining, comma separated"),
 #endif
-	OPT_WITH_ARG("--url|-o",
-		     set_url, NULL, NULL,
-		     "URL for bitcoin JSON-RPC server"),
-	OPT_WITH_ARG("--user|-u",
-		     set_user, NULL, NULL,
-		     "Username for bitcoin JSON-RPC server"),
+    OPT_WITH_ARG("--url|-o",
+      set_url, NULL, NULL,
+      "URL for a JSON-RPC server"),
+    OPT_WITH_ARG("--user|-u",
+      set_user, NULL, NULL,
+      "Username for a JSON-RPC server"),
 #ifdef HAVE_OPENCL
 	OPT_WITH_ARG("--vectors|-v",
 		     set_vector, NULL, NULL,
@@ -1445,9 +1445,9 @@ static struct opt_table opt_config_table[] = {
 		     set_worksize, NULL, NULL,
 		     "Override detected optimal worksize - one value or comma separated list"),
 #endif
-	OPT_WITH_ARG("--userpass|-O",
-		     set_userpass, NULL, NULL,
-		     "Username:Password pair for bitcoin JSON-RPC server"),
+    OPT_WITH_ARG("--userpass|-O",
+      set_userpass, NULL, NULL,
+      "Username:Password pair for a JSON-RPC server"),
 	OPT_WITHOUT_ARG("--worktime",
 			opt_set_bool, &opt_worktime,
 			"Display extra work time debug information"),
@@ -1613,7 +1613,7 @@ extern const char *opt_argv0;
 
 static char *opt_verusage_and_exit(const char *extra)
 {
-	printf("%s\nBuilt with "
+    printf("%s\nBuilt with the "
 #ifdef HAVE_OPENCL
 		"GPU "
 #endif
@@ -1634,9 +1634,6 @@ static char *opt_verusage_and_exit(const char *extra)
 #endif
 #ifdef USE_ZTEX
 		"ztex "
-#endif
-#ifdef USE_SCRYPT
-		"scrypt "
 #endif
 		"mining support.\n"
 		, packagename);

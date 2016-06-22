@@ -1,6 +1,6 @@
 ######################################################################################
 #                                                                                    #
-#          Native WIN32 setup and build instructions (on mingw32/Windows):           #
+#          Native WIN32 setup and build instructions (on MinGW/Windows):             #
 #                                                                                    #
 ######################################################################################
 
@@ -147,7 +147,7 @@ You may now exit the MSYS shell.
 Ctrl-D or typing "logout" and pressing the enter key should get you out of the
 window.
 
-You will have to copy "libusb-1.0.dll" to your working BFGMiner binary directory.
+You will have to copy "libusb-1.0.dll" to your working miner binary directory.
 You will find "libusb-1.0.dll" in the \MinGW\bin directory/folder.
 
 Use this method if libusb does not work for you on Ztex. Once someone lets us know
@@ -166,7 +166,7 @@ Copy libusb.h from include\libusbx-1.0 to \MinGW\include\libusb-1.0\libusb.h
 Copy contents of MinGW32\static \MinGW\lib
 Copy contents of MinGW32\dll to \MinGW\lib
 
-NOTE: You will have to copy "libusb-1.0.dll" to your working BFGMiner binary directory.
+NOTE: You will have to copy "libusb-1.0.dll" to your working miner binary directory.
 
 **************************************************************************************
 * REQUIRED - Install Git into MinGW/MSYS                                             *
@@ -187,57 +187,59 @@ then close ALL MSYS Shell windows currently open
 
 Open a new MSYS Shell and enter the following commands
 
-  git clone git://github.com/luke-jr/bfgminer.git
+  git clone git://github.com/ghostlander/nsgminer.git
 
 If you just want to update the source after you have already cloned, type:
 
-  cd bfgminer
+  cd nsgminer
   git fetch
 
 Now you can get the latest source directly from github.
 
 **************************************************************************************
-* Build bfgminer.exe                                                                 *
+* Build the miner                                                                 *
 **************************************************************************************
 Run the MinGW MSYS shell
 (Start Icon/keyboard key ==> All Programs ==> MinGW ==> MinGW Shell).
-Change the working directory to your BFGMiner project folder.
-Example: cd bfgminer-2.7.1 [Enter Key] if you are unsure then type "ls -la"
-Another way is to type "cd bfg" and then press the tab key; It will auto fill.
+Change the working directory to your NSGminer project folder.
+Example: cd nsgminer [Enter Key] if you are unsure then type "ls -la"
+Another way is to type "cd nsg" and then press the tab key; It will auto fill.
 Type the lines below one at a time. Look for problems after each one before going on
 to the next.
 
-      ./autogen.sh
-      CFLAGS="-O2 -msse2" ./configure (additional config options, see below)
-      make
-      strip bfgminer.exe  <== only do this if you are not compiling for debugging
+  ./autogen.sh
+  CFLAGS="-O2 -fomit-frame-pointer" ./configure (see below for additional options)
+  make
+  strip nsgminer.exe (do this if you want no debugging)
 
 **************************************************************************************
 * Some ./configure options                                                           *
 **************************************************************************************
---enable-cpumining      Build with cpu mining support(default disabled)
+--enable-cpumining      Build with support for CPU mining (default disabled)
 --disable-opencl        Build without support for OpenCL (default enabled)
---disable-adl           Build without ADL monitoring (default enabled)
---disable-bitforce      Compile support for BitForce (default enabled)
---disable-icarus        Compile support for Icarus (default enabled)
---disable-modminer      Compile support for ModMiner (default enabled)
---disable-x6500         Compile support for X6500 (default enabled)
---disable-ztex          Compile support for Ztex (default if libusb)
---enable-scrypt         Compile support for scrypt litecoin mining (default disabled)
+--disable-adl           Build with no ADL GPU monitoring (default enabled)
+--disable-nvml          Build with no NVML GPU monitoring (default enabled)
+--enable-bitforce       Add support for BitForce FPGAs (default disabled)
+--enable-icarus         Add support for Icarus FPGAs (default disabled)
+--enable-modminer       Add support for ModMiner FPGAs (default disabled)
+--enable-x6500          Add support for X6500 FPGAs (default disabled,
+                          libusb required if enabled)
+--enable-ztex           Add support for ZTEX FPGAs (default disabled,
+                          libusb required if enabled)
+--disable-neoscrypt     Build without support for NeoScrypt (default enabled)
+--disable-scrypt        Build without support for Scrypt (default enabled)
 --without-curses        Compile support for curses TUI (default enabled)
 --without-libudev       Autodetect FPGAs using libudev (default enabled)
 
 **************************************************************************************
 * Copy files to a build directory/folder                                             *
 **************************************************************************************
-Make a directory and copy the following files into it. This will be your BFGMiner
-Folder that you use for mining. Remember the .cl filenames could change on later
-releases. If you installed a different version of libcurl then some of those dll's
-may be different as well.
+Make a directory and copy the following files into it. This is what you will use for
+mining.
 
-  bfgminer.exe	from \MinGW\msys\1.0\home\(username)\bfgminer
-  *.cl			from \MinGW\msys\1.0\home\(username)\bfgminer
-  README		from \MinGW\msys\1.0\home\(username)\bfgminer
+  nsgminer.exe	from \MinGW\msys\1.0\home\(username)\nsgminer
+  *.cl			from \MinGW\msys\1.0\home\(username)\nsgminer
+  README		from \MinGW\msys\1.0\home\(username)\nsgminer
   libcurl.dll	from \MinGW\bin
   libidn-11.dll	from \MinGW\bin
   libeay32.dll	from \MinGW\bin
