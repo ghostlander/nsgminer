@@ -83,6 +83,7 @@ extern char *set_int_range(const char *arg, int *i, int min, int max);
 extern int dev_from_id(int thr_id);
 
 
+#ifdef USE_SHA256D
 /* chipset-optimized hash functions */
 extern bool ScanHash_4WaySSE2(struct thr_info*, const unsigned char *pmidstate,
 	unsigned char *pdata, unsigned char *phash1, unsigned char *phash,
@@ -133,11 +134,14 @@ extern bool scanhash_sse2_32(struct thr_info*, const unsigned char *pmidstate, u
 	const unsigned char *ptarget,
 	uint32_t max_nonce, uint32_t *last_nonce,
 	uint32_t nonce);
+#endif /* USE_SHA256D */
+
 
 #ifdef WANT_CPUMINE
 static size_t max_name_len = 0;
 static char *name_spaces_pad = NULL;
 const char *algo_names[] = {
+#ifdef USE_SHA256D
 	[ALGO_C]		= "c",
 #ifdef WANT_SSE2_4WAY
 	[ALGO_4WAY]		= "4way",
@@ -161,14 +165,17 @@ const char *algo_names[] = {
 #ifdef WANT_ALTIVEC_4WAY
     [ALGO_ALTIVEC_4WAY] = "altivec_4way",
 #endif
-#if (USE_NEOSCRYPT)
+#endif /* USE_SHA256D */
+#ifdef USE_NEOSCRYPT
     [ALGO_NEOSCRYPT] = "neoscrypt",
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     [ALGO_SCRYPT] = "scrypt",
 #endif
+    [ALGO_VOID] = "void",
 };
 
+#ifdef USE_SHA256D
 static const sha256_func sha256_funcs[] = {
 	[ALGO_C]		= (sha256_func)scanhash_c,
 #ifdef WANT_SSE2_4WAY
@@ -194,18 +201,23 @@ static const sha256_func sha256_funcs[] = {
 	[ALGO_SSE4_64]		= (sha256_func)scanhash_sse4_64,
 #endif
 };
+#endif /* USE_SHA256D */
 #endif
 
 
 
 #ifdef WANT_CPUMINE
+#ifdef USE_SHA256D
 #if defined(WANT_X8664_SSE2) && defined(__SSE2__)
-enum sha256_algos opt_algo = ALGO_SSE2_64;
+enum algo_types opt_algo = ALGO_SSE2_64;
 #elif defined(WANT_X8632_SSE2) && defined(__SSE2__)
-enum sha256_algos opt_algo = ALGO_SSE2_32;
+enum algo_types opt_algo = ALGO_SSE2_32;
 #else
-enum sha256_algos opt_algo = ALGO_C;
+enum algo_types opt_algo = ALGO_C;
 #endif
+#else
+enum algo_types opt_algo = ALGO_VOID;
+#endif /* USE_SHA256D */
 bool opt_usecpu = false;
 static bool forced_n_threads;
 #endif
@@ -221,11 +233,9 @@ static const uint32_t hash1_init[] = {
 
 
 #ifdef WANT_CPUMINE
+#ifdef USE_SHA256D
 // Algo benchmark, crash-prone, system independent stage
-double bench_algo_stage3(
-	enum sha256_algos algo
-)
-{
+double bench_algo_stage3(enum algo_types algo) {
 	// Use a random work block pulled from a pool
 	static uint8_t bench_block[] = { CGMINER_BENCHMARK_BLOCK };
 	struct work work __attribute__((aligned(128)));
@@ -299,10 +309,7 @@ double bench_algo_stage3(
 #endif // defined(unix)
 
 // Algo benchmark, crash-safe, system-dependent stage
-static double bench_algo_stage2(
-	enum sha256_algos algo
-)
-{
+static double bench_algo_stage2(enum algo_types algo) {
 	// Here, the gig is to safely run a piece of code that potentially
 	// crashes. Unfortunately, the Right Way (tm) to do this is rather
 	// heavily platform dependent :(
@@ -561,12 +568,8 @@ static double bench_algo_stage2(
 	return rate;
 }
 
-static void bench_algo(
-	double            *best_rate,
-	enum sha256_algos *best_algo,
-	enum sha256_algos algo
-)
-{
+static void bench_algo(double *best_rate, enum algo_types *best_algo,
+  enum algo_types algo) {
 	size_t n = max_name_len - strlen(algo_names[algo]);
 	memset(name_spaces_pad, ' ', n);
 	name_spaces_pad[n] = 0;
@@ -601,30 +604,10 @@ static void bench_algo(
 	}
 }
 
-// Figure out the longest algorithm name
-void init_max_name_len()
-{
-	size_t i;
-	size_t nb_names = sizeof(algo_names)/sizeof(algo_names[0]);
-	for (i=0; i<nb_names; ++i) {
-		const char *p = algo_names[i];
-		size_t name_len = p ? strlen(p) : 0;
-		if (max_name_len<name_len)
-			max_name_len = name_len;
-	}
-
-	name_spaces_pad = (char*) malloc(max_name_len+16);
-	if (0==name_spaces_pad) {
-		perror("malloc failed");
-		exit(1);
-	}
-}
-
 // Pick the fastest CPU hasher
-static enum sha256_algos pick_fastest_algo()
-{
+static enum algo_types pick_fastest_algo() {
 	double best_rate = -1.0;
-	enum sha256_algos best_algo = 0;
+    enum algo_types best_algo = 0;
 	applog(LOG_ERR, "benchmarking all sha256 algorithms ...");
 
 	bench_algo(&best_rate, &best_algo, ALGO_C);
@@ -671,15 +654,35 @@ static enum sha256_algos pick_fastest_algo()
 	);
 	return best_algo;
 }
+#endif /* USE_SHA256D */
+
+// Figure out the longest algorithm name
+void init_max_name_len()
+{
+	size_t i;
+	size_t nb_names = sizeof(algo_names)/sizeof(algo_names[0]);
+	for (i=0; i<nb_names; ++i) {
+		const char *p = algo_names[i];
+		size_t name_len = p ? strlen(p) : 0;
+		if (max_name_len<name_len)
+			max_name_len = name_len;
+	}
+
+	name_spaces_pad = (char*) malloc(max_name_len+16);
+	if (0==name_spaces_pad) {
+		perror("malloc failed");
+		exit(1);
+	}
+}
 
 /* FIXME: Use asprintf for better errors. */
-char *set_algo(const char *arg, enum sha256_algos *algo)
-{
-	enum sha256_algos i;
+char *set_algo(const char *arg, enum algo_types *algo) {
+    enum algo_types i;
 
-    if(opt_neoscrypt || opt_scrypt)
+    if(!opt_sha256d)
       return("default");
 
+#ifdef USE_SHA256D
 	if (!strcmp(arg, "auto")) {
 		*algo = pick_fastest_algo();
 		return NULL;
@@ -691,22 +694,25 @@ char *set_algo(const char *arg, enum sha256_algos *algo)
 			return NULL;
 		}
 	}
-	return "Unknown algorithm";
+#endif /* USE_SHA256D */
+
+    return("void");
 }
 
-void *set_algo_quick(enum sha256_algos *algo) {
+void *set_algo_quick(enum algo_types *algo) {
 
     if(opt_neoscrypt) {
         *algo = ALGO_NEOSCRYPT;
     } else if(opt_scrypt) {
         *algo = ALGO_SCRYPT;
+    } else {
+        *algo = ALGO_VOID;
     }
 
 }
 
-void show_algo(char buf[OPT_SHOW_LEN], const enum sha256_algos *algo)
-{
-	strncpy(buf, algo_names[*algo], OPT_SHOW_LEN);
+void show_algo(char buf[OPT_SHOW_LEN], const enum algo_types *algo) {
+    strncpy(buf, algo_names[*algo], OPT_SHOW_LEN);
 }
 #endif
 
@@ -807,7 +813,7 @@ static bool cpu_thread_init(struct thr_info *thr)
 	return true;
 }
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20 */
 static int scanhash_neoscrypt(struct thr_info *thr, uint *pdata, const uint *ptarget,
   uint *phash, uint start_nonce, uint max_nonce, uint *final_nonce) {
@@ -842,7 +848,7 @@ static int scanhash_neoscrypt(struct thr_info *thr, uint *pdata, const uint *pta
 }
 #endif
 
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
 /* Scrypt(1024, 1, 1) with Salsa20/8 through NeoScrypt */
 static int scanhash_altscrypt(struct thr_info *thr, uint *pdata, const uint *ptarget,
   uint *phash, uint start_nonce, uint max_nonce, uint *final_nonce) {
@@ -887,30 +893,35 @@ static int scanhash_altscrypt(struct thr_info *thr, uint *pdata, const uint *pta
 static int64_t cpu_scanhash(struct thr_info *thr, struct work *work, int64_t max_nonce) {
     const int thr_id = thr->id;
     const uint first_nonce = work->blk.nonce;
-    uint final_nonce, rc;
+    uint final_nonce, rc = 0;
 
     while(!thr->work_restart) {
 
         final_nonce = work->blk.nonce;
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
         if(opt_neoscrypt) {
             rc = scanhash_neoscrypt(thr, (uint *) work->data, (uint *) work->target,
               (uint *) work->hash, work->blk.nonce, max_nonce, &final_nonce);
         } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
         if(opt_scrypt) {
             rc = scanhash_altscrypt(thr, (uint *) work->data, (uint *) work->target,
               (uint *) work->hash, work->blk.nonce, max_nonce, &final_nonce);
         } else
 #endif
-        {
+#ifdef USE_SHA256D
+        if(opt_sha256d) {
             uchar hash1[64];
 	    memcpy(&hash1[0], &hash1_init[0], sizeof(hash1));
             sha256_func func = sha256_funcs[opt_algo];
             rc = (*func) (thr, work->midstate, work->data, hash1, work->hash,
               work->target, max_nonce, &final_nonce, work->blk.nonce);
+        } else
+#endif
+        {
+            usleep(1000);
         }
 
         if(rc) {

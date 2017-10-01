@@ -46,7 +46,7 @@
 #define WANT_X8664_SSE4 1
 #endif
 
-enum sha256_algos {
+enum algo_types {
 	ALGO_C,			/* plain C */
 	ALGO_4WAY,		/* parallel SSE2 */
 	ALGO_VIA,		/* VIA padlock */
@@ -58,17 +58,18 @@ enum sha256_algos {
 	ALGO_ALTIVEC_4WAY,	/* parallel Altivec */
 	ALGO_NEOSCRYPT,		/* NeoScrypt */
 	ALGO_SCRYPT,		/* Scrypt */
+	ALGO_VOID,
 };
 
 extern const char *algo_names[];
 extern bool opt_usecpu;
 extern struct device_api cpu_api;
 
-extern char *set_algo(const char *arg, enum sha256_algos *algo);
-extern void show_algo(char buf[OPT_SHOW_LEN], const enum sha256_algos *algo);
+extern char *set_algo(const char *arg, enum algo_types *algo);
+extern void show_algo(char buf[OPT_SHOW_LEN], const enum algo_types *algo);
 extern char *force_nthreads_int(const char *arg, int *i);
 extern void init_max_name_len();
-extern double bench_algo_stage3(enum sha256_algos algo);
-extern void *set_algo_quick(enum sha256_algos *algo);
+extern double bench_algo_stage3(enum algo_types algo);
+extern void *set_algo_quick(enum algo_types *algo);
 
 #endif /* __DEVICE_CPU_H__ */

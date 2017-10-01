@@ -145,21 +145,31 @@ neoscrypt="yes"
 
 AC_ARG_ENABLE([neoscrypt],
 	[AC_HELP_STRING([--disable-neoscrypt],[Build without support for NeoScrypt (default enabled)])],
-	[scrypt=$enableval]
+	[neoscrypt=$enableval]
 	)
 if test "x$neoscrypt" = xyes; then
 	AC_DEFINE([USE_NEOSCRYPT], [1], [Defined to 1 if NeoScrypt support is wanted])
 fi
 
 
-scrypt="yes"
+scrypt="no"
 
 AC_ARG_ENABLE([scrypt],
-	[AC_HELP_STRING([--disable-scrypt],[Build without support for Scrypt (default enabled)])],
+	[AC_HELP_STRING([--disable-scrypt],[Build without support for Scrypt (default disabled)])],
 	[scrypt=$enableval]
 	)
 if test "x$scrypt" = xyes; then
 	AC_DEFINE([USE_SCRYPT], [1], [Defined to 1 if Scrypt support is wanted])
+fi
+
+sha256d="no"
+
+AC_ARG_ENABLE([sha256d],
+	[AC_HELP_STRING([--disable-sha256d],[Build without support for SHA-256d (default disabled)])],
+	[sha256d=$enableval]
+	)
+if test "x$sha256d" = xyes; then
+	AC_DEFINE([USE_SHA256D], [1], [Defined to 1 if SHA-256d support is wanted])
 fi
 
 
@@ -423,6 +433,7 @@ AM_CONDITIONAL([NEED_DYNCLOCK], [test x$icarus$modminer$x6500$ztex != xnonono])
 AM_CONDITIONAL([NEED_FPGAUTILS], [test x$icarus$bitforce$modminer$x6500$ztex != xnonononono])
 AM_CONDITIONAL([HAS_NEOSCRYPT], [test x$neoscrypt = xyes])
 AM_CONDITIONAL([HAS_SCRYPT], [test x$scrypt = xyes])
+AM_CONDITIONAL([HAS_SHA256D], [test x$sha256d = xyes])
 AM_CONDITIONAL([HAVE_CURSES], [test x$curses = xyes])
 AM_CONDITIONAL([HAVE_CYGWIN], [test x$have_cygwin = xtrue])
 AM_CONDITIONAL([HAVE_WINDOWS], [test x$have_win32 = xtrue])
@@ -686,6 +697,12 @@ if test "x$scrypt" != xno; then
 	echo "  Scrypt...............: Enabled"
 else
 	echo "  Scrypt...............: Disabled"
+fi
+
+if test "x$sha256d" != xno; then
+	echo "  SHA-256d.............: Enabled"
+else
+	echo "  SHA-256d.............: Disabled"
 fi
 
 echo

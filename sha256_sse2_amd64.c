@@ -12,7 +12,7 @@
 
 #include "driver-cpu.h"
 
-#ifdef WANT_X8664_SSE2
+#if defined(USE_SHA256D) && defined(WANT_X8664_SSE2)
 
 #include <string.h>
 #include <assert.h>
@@ -131,5 +131,4 @@ bool scanhash_sse2_64(struct thr_info*thr, const unsigned char *pmidstate,
    }
 }
 
-#endif /* WANT_X8664_SSE2 */
-
+#endif /* USE_SHA256D && WANT_X8664_SSE2 */

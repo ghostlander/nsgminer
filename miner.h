@@ -332,13 +332,13 @@ enum dev_enable {
 };
 
 enum cl_kernels {
-	KL_NONE,
-	KL_POCLBM,
-	KL_PHATK,
-	KL_DIAKGCN,
-	KL_DIABLO,
+    KL_VOID,
     KL_NEOSCRYPT,
     KL_SCRYPT,
+    KL_DIABLO,
+    KL_DIAKGCN,
+    KL_PHATK,
+    KL_POCLBM,
 };
 
 enum dev_reason {
@@ -474,8 +474,8 @@ struct cgpu_info {
 	enum cl_kernels kernel;
 	cl_ulong max_alloc;
 
-#if (USE_NEOSCRYPT)
     uint max_intensity;
+#ifdef USE_NEOSCRYPT
     uint max_global_threads;
 #endif
 
@@ -839,17 +839,9 @@ extern struct thr_info *thr_info;
 extern struct cgpu_info gpus[MAX_GPUDEVICES];
 extern int gpu_threads;
 
-#if (USE_NEOSCRYPT)
 extern bool opt_neoscrypt;
-#else
-#define opt_neoscrypt (0)
-#endif
-
-#if (USE_SCRYPT)
 extern bool opt_scrypt;
-#else
-#define opt_scrypt (0)
-#endif
+extern bool opt_sha256d;
 
 extern double total_secs;
 extern int mining_threads;
@@ -859,7 +851,7 @@ extern struct cgpu_info **devices;
 extern int total_pools;
 extern struct pool **pools;
 extern const char *algo_names[];
-extern enum sha256_algos opt_algo;
+extern enum algo_types opt_algo;
 extern struct strategies strategies[];
 extern enum pool_strategy pool_strategy;
 extern int opt_rotate_period;
@@ -883,11 +875,13 @@ extern struct timeval block_timeval;
 
 #ifdef HAVE_OPENCL
 typedef struct {
+    cl_uint nonce;
+#ifdef USE_SHA256D
 	cl_uint ctx_a; cl_uint ctx_b; cl_uint ctx_c; cl_uint ctx_d;
 	cl_uint ctx_e; cl_uint ctx_f; cl_uint ctx_g; cl_uint ctx_h;
 	cl_uint cty_a; cl_uint cty_b; cl_uint cty_c; cl_uint cty_d;
 	cl_uint cty_e; cl_uint cty_f; cl_uint cty_g; cl_uint cty_h;
-	cl_uint merkle; cl_uint ntime; cl_uint nbits; cl_uint nonce;
+	cl_uint merkle; cl_uint ntime; cl_uint nbits;
 	cl_uint fW0; cl_uint fW1; cl_uint fW2; cl_uint fW3; cl_uint fW15;
 	cl_uint fW01r; cl_uint fcty_e; cl_uint fcty_e2;
 	cl_uint W16; cl_uint W17; cl_uint W2;
@@ -905,9 +899,8 @@ typedef struct {
 	cl_uint B1addK6, PreVal0addK7, W16addK16, W17addK17;
 	cl_uint zeroA, zeroB;
 	cl_uint oneA, twoA, threeA, fourA, fiveA, sixA, sevenA;
-#if (USE_NEOSCRYPT) || (USE_SCRYPT)
-	struct work *work;
 #endif
+	struct work *work;
 } dev_blk_ctx;
 #else
 typedef struct {
@@ -1065,7 +1058,9 @@ double last_shares, shares;
 
 struct work {
 	unsigned char	data[128];
+#if defined(USE_SHA256D) || defined(USE_SCRYPT)
 	unsigned char	midstate[32];
+#endif
 	unsigned char	target[32];
 	unsigned char	hash[32];
 

@@ -10,6 +10,7 @@
  */
 
 #include "config.h"
+
 #ifdef HAVE_OPENCL
 
 #include <signal.h>
@@ -604,43 +605,36 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	char filename[255];
 	char numbuf[32];
 
-   if(cgpu->kernel == KL_NONE) {
+   if(cgpu->kernel == KL_VOID) {
+#ifdef USE_NEOSCRYPT
         if(opt_neoscrypt) {
             applog(LOG_INFO, "Selecting the default NeoScrypt kernel");
             clState->chosen_kernel = KL_NEOSCRYPT;
-        } else if(opt_scrypt) {
+        } else
+#endif
+#ifdef USE_SCRYPT
+        if(opt_scrypt) {
             applog(LOG_INFO, "Selecting the default Scrypt kernel");
             clState->chosen_kernel = KL_SCRYPT;
-        } else {
-            applog(LOG_INFO, "Selecting the diablo kernel");
+        } else
+#endif
+#ifdef USE_SHA256D
+        if(opt_sha256d) {
+            applog(LOG_INFO, "Selecting the Diablo kernel");
             clState->chosen_kernel = KL_DIABLO;
+        } else
+#endif
+        {
+            clState->chosen_kernel = KL_VOID;
         }
         cgpu->kernel = clState->chosen_kernel;
     } else {
         clState->chosen_kernel = cgpu->kernel;
     }
 
-	/* For some reason 2 vectors is still better even if the card says
-	 * otherwise, and many cards lie about their max so use 256 as max
-	 * unless explicitly set on the command line. Tahiti prefers 1 */
-	if (strstr(name, "Tahiti"))
-		preferred_vwidth = 1;
-	else if (preferred_vwidth > 2)
-		preferred_vwidth = 2;
+    preferred_vwidth = 1;
 
-	switch (clState->chosen_kernel) {
-		case KL_POCLBM:
-			strcpy(filename, POCLBM_KERNNAME".cl");
-			strcpy(binaryfilename, POCLBM_KERNNAME);
-			break;
-		case KL_PHATK:
-			strcpy(filename, PHATK_KERNNAME".cl");
-			strcpy(binaryfilename, PHATK_KERNNAME);
-			break;
-		case KL_DIAKGCN:
-			strcpy(filename, DIAKGCN_KERNNAME".cl");
-			strcpy(binaryfilename, DIAKGCN_KERNNAME);
-			break;
+    switch(clState->chosen_kernel) {
         case(KL_NEOSCRYPT):
             strcpy(filename, NEOSCRYPT_KERNNAME".cl");
             strcpy(binaryfilename, NEOSCRYPT_KERNNAME);
@@ -653,12 +647,26 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
             /* Scrypt only supports vector 1 */
             cgpu->vwidth = 1;
             break;
-		case KL_NONE: /* Shouldn't happen */
-		case KL_DIABLO:
-			strcpy(filename, DIABLO_KERNNAME".cl");
-			strcpy(binaryfilename, DIABLO_KERNNAME);
-			break;
-	}
+        case(KL_DIABLO):
+            strcpy(filename, DIABLO_KERNNAME".cl");
+            strcpy(binaryfilename, DIABLO_KERNNAME);
+            break;
+        case(KL_DIAKGCN):
+            strcpy(filename, DIAKGCN_KERNNAME".cl");
+            strcpy(binaryfilename, DIAKGCN_KERNNAME);
+            break;
+        case(KL_PHATK):
+            strcpy(filename, PHATK_KERNNAME".cl");
+            strcpy(binaryfilename, PHATK_KERNNAME);
+            break;
+        case(KL_POCLBM):
+            strcpy(filename, POCLBM_KERNNAME".cl");
+            strcpy(binaryfilename, POCLBM_KERNNAME);
+            break;
+        default:
+        case(KL_VOID):
+            break;
+    }
 
 	if (cgpu->vwidth)
 		clState->vwidth = cgpu->vwidth;
@@ -681,7 +689,7 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 		clState->wsize = (clState->max_work_size <= 256 ? clState->max_work_size : 256) / clState->vwidth;
 	cgpu->work_size = clState->wsize;
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         uint i;
         cgpu->max_global_threads = (uint)(cgpu->max_alloc / 32768ULL);
@@ -767,21 +775,24 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 	if (clState->goffset)
 		strcat(binaryfilename, "g");
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         /* Nothing here */
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         sprintf(numbuf, "lg%utc%u", cgpu->lookup_gap, (uint)cgpu->thread_concurrency);
         strcat(binaryfilename, numbuf);
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         sprintf(numbuf, "v%d", clState->vwidth);
         strcat(binaryfilename, numbuf);
-    }
+    } else
+#endif
+    { }
 
 	sprintf(numbuf, "w%d", (int)clState->wsize);
 	strcat(binaryfilename, numbuf);
@@ -847,21 +858,24 @@ build:
 	/* create a cl program executable for all the devices specified */
 	char *CompilerOptions = calloc(1, 256);
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         sprintf(CompilerOptions, "-D WORKSIZE=%d", (int)clState->wsize);
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         sprintf(CompilerOptions, "-D LOOKUP_GAP=%d -D CONCURRENT_THREADS=%d -D WORKSIZE=%d",
           cgpu->lookup_gap, (uint)cgpu->thread_concurrency, (int)clState->wsize);
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         sprintf(CompilerOptions, "-D WORKSIZE=%d -D VECTORS%d -D WORKVEC=%d",
           (int)clState->wsize, clState->vwidth, (int)clState->wsize * clState->vwidth);
-    }
+    } else
+#endif
+    { }
 
     applog(LOG_DEBUG, "Setting work size to %d", (int)clState->wsize);
 
@@ -1052,7 +1066,7 @@ built:
 		return NULL;
 	}
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         clState->padbufsize = (1U << cgpu->intensity) * 32768;
         applog(LOG_DEBUG, "Allocating %llu bytes of global memory for NeoScrypt",
@@ -1076,7 +1090,7 @@ built:
         }
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
 		size_t ipt = (1024 / cgpu->lookup_gap + (1024 % cgpu->lookup_gap > 0));
 		size_t bufsize = 128 * ipt * cgpu->thread_concurrency;
@@ -1120,5 +1134,5 @@ built:
 
     return(clState);
 }
-#endif /* HAVE_OPENCL */
 
+#endif /* HAVE_OPENCL */

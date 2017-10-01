@@ -12,6 +12,8 @@
 
 #include "config.h"
 
+#ifdef HAVE_OPENCL
+
 #ifdef WIN32
 #include <winsock2.h>
 #endif
@@ -433,25 +435,27 @@ char *set_thread_concurrency(char *arg)
 }
 #endif
 
-static enum cl_kernels select_kernel(char *arg)
-{
-	if (!strcmp(arg, "diablo"))
-		return KL_DIABLO;
-	if (!strcmp(arg, "diakgcn"))
-		return KL_DIAKGCN;
-	if (!strcmp(arg, "poclbm"))
-		return KL_POCLBM;
-	if (!strcmp(arg, "phatk"))
-		return KL_PHATK;
-#if (USE_NEOSCRYPT)
+static enum cl_kernels select_kernel(char *arg) {
+
+#ifdef USE_NEOSCRYPT
     if(!strcmp(arg, "neoscrypt"))
       return(KL_NEOSCRYPT);
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(!strcmp(arg, "scrypt"))
       return(KL_SCRYPT);
 #endif
-	return KL_NONE;
+#ifdef USE_SHA256D
+    if(!strcmp(arg, "diablo"))
+      return(KL_DIABLO);
+    if(!strcmp(arg, "diakgcn"))
+      return(KL_DIAKGCN);
+    if(!strcmp(arg, "phatk"))
+      return(KL_PHATK);
+    if(!strcmp(arg, "poclbm"))
+      return(KL_POCLBM);
+#endif
+    return(KL_VOID);
 }
 
 char *set_kernel(char *arg)
@@ -467,15 +471,10 @@ char *set_kernel(char *arg)
 	if (nextptr == NULL)
 		return "Invalid parameters for set kernel";
 	kern = select_kernel(nextptr);
-	if (kern == KL_NONE)
-		return "Invalid parameter to set_kernel";
 	gpus[device++].kernel = kern;
 
 	while ((nextptr = strtok(NULL, ",")) != NULL) {
 		kern = select_kernel(nextptr);
-		if (kern == KL_NONE)
-			return "Invalid parameter to set_kernel";
-
 		gpus[device++].kernel = kern;
 	}
 	if (device == 1) {
@@ -750,29 +749,38 @@ char *set_temp_overheat(char *arg)
 
 #ifdef HAVE_OPENCL
 char *set_intensity(char *arg) {
-    int min_intensity, max_intensity, i, device = 0, *tt;
-    char *nextptr, val = 0;
+    int min_intensity = -127, max_intensity = 127, device = 0, i, *tt;
+    char val = 0, *nextptr;
 
     nextptr = strtok(arg, ",");
     if(nextptr == NULL)
       return("Invalid parameters for set intensity");
 
-#if (USE_NEOSCRYPT)
+    /* If no algorithm specified, default to NeoScrypt */
+#ifdef USE_NEOSCRYPT
+    if(!opt_neoscrypt && !opt_scrypt && !opt_sha256d)
+      opt_neoscrypt = true;
+#endif
+
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         min_intensity = MIN_NEOSCRYPT_INTENSITY;
         max_intensity = MAX_NEOSCRYPT_INTENSITY;
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         min_intensity = MIN_SCRYPT_INTENSITY;
         max_intensity = MAX_SCRYPT_INTENSITY;
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         min_intensity = MIN_SHA256D_INTENSITY;
         max_intensity = MAX_SHA256D_INTENSITY;
-    }
+    } else
+#endif
+    { }
 
     if(!strncasecmp(nextptr, "d", 1)) {
         gpus[device].dynamic = true;
@@ -890,24 +898,27 @@ void manage_gpu(void)
 	immedok(logwin, true);
 	clear_logwin();
 
-    int min_intensity, max_intensity;
+    int min_intensity = -127, max_intensity = 127;
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         min_intensity = MIN_NEOSCRYPT_INTENSITY;
         max_intensity = MAX_NEOSCRYPT_INTENSITY;
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         min_intensity = MIN_SCRYPT_INTENSITY;
         max_intensity = MAX_SCRYPT_INTENSITY;
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         min_intensity = MIN_SHA256D_INTENSITY;
         max_intensity = MAX_SHA256D_INTENSITY;
-    }
+    } else
+#endif
+    { }
 
 retry:
 
@@ -1084,7 +1095,7 @@ retry:
 		intensity = atoi(intvar);
 		free(intvar);
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         if((intensity < MIN_NEOSCRYPT_INTENSITY) || (intensity > gpus[selected].max_intensity)) {
             wlogprint("Invalid selection\n");
@@ -1092,7 +1103,7 @@ retry:
         }
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         if((intensity < MIN_SCRYPT_INTENSITY) || (intensity > MAX_SCRYPT_INTENSITY)) {
             wlogprint("Invalid selection\n");
@@ -1100,8 +1111,16 @@ retry:
         }
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         if((intensity < MIN_SHA256D_INTENSITY) || (intensity > MAX_SHA256D_INTENSITY)) {
+            wlogprint("Invalid selection\n");
+            goto retry;
+        }
+    } else
+#endif
+    {
+        if((intensity < 1) || (intensity > 1)) {
             wlogprint("Invalid selection\n");
             goto retry;
         }
@@ -1154,6 +1173,7 @@ static _clState *clStates[MAX_GPUDEVICES];
 #define CL_SET_ARG(var) status |= clSetKernelArg(*kernel, num++, sizeof(var), (void *)&var)
 #define CL_SET_VARG(args, var) status |= clSetKernelArg(*kernel, num++, args * sizeof(uint), (void *)var)
 
+#ifdef USE_SHA256D
 static cl_int queue_poclbm_kernel(_clState *clState, dev_blk_ctx *blk, cl_uint threads)
 {
 	cl_kernel *kernel = &clState->kernel;
@@ -1364,8 +1384,9 @@ static cl_int queue_diablo_kernel(_clState *clState, dev_blk_ctx *blk, cl_uint t
 
 	return status;
 }
+#endif /* USE_SHA256D */
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
 static cl_int queue_neoscrypt_kernel(_clState *clState, dev_blk_ctx *blk,
   __maybe_unused cl_uint threads) {
     cl_kernel *kernel = &clState->kernel;
@@ -1410,6 +1431,14 @@ static cl_int queue_scrypt_kernel(_clState *clState, dev_blk_ctx *blk, __maybe_u
 	return status;
 }
 #endif
+
+static cl_int queue_void_kernel(_clState *clState, dev_blk_ctx *blk, cl_uint threads) {
+    cl_int status = 0;
+
+    usleep(1000);
+
+    return(status);
+}
 
 /* We have only one thread that ever re-initialises GPUs, thus if any GPU
  * init command fails due to a completely wedged GPU, the thread will never
@@ -1721,6 +1750,17 @@ static bool opencl_thread_prepare(struct thr_info *thr)
 
     if(!cgpu->kname) {
         switch(clStates[i]->chosen_kernel) {
+#ifdef USE_NEOSCRYPT
+            case(KL_NEOSCRYPT):
+                cgpu->kname = "neoscrypt";
+                break;
+#endif
+#ifdef USE_SCRYPT
+            case(KL_SCRYPT):
+                cgpu->kname = "scrypt";
+                break;
+#endif
+#ifdef USE_SHA256D
 	    case(KL_DIABLO):
                 cgpu->kname = "diablo";
                 break;
@@ -1732,15 +1772,6 @@ static bool opencl_thread_prepare(struct thr_info *thr)
                 break;
             case(KL_POCLBM):
                 cgpu->kname = "poclbm";
-                break;
-#if (USE_NEOSCRYPT)
-            case(KL_NEOSCRYPT):
-                cgpu->kname = "neoscrypt";
-                break;
-#endif
-#if (USE_SCRYPT)
-            case(KL_SCRYPT):
-                cgpu->kname = "scrypt";
                 break;
 #endif
             default:
@@ -1773,7 +1804,17 @@ static bool opencl_thread_init(struct thr_info *thr)
 	}
 
     switch(clState->chosen_kernel) {
-        default:
+#ifdef USE_NEOSCRYPT
+        case(KL_NEOSCRYPT):
+            thrdata->queue_kernel_parameters = &queue_neoscrypt_kernel;
+            break;
+#endif
+#ifdef USE_SCRYPT
+        case(KL_SCRYPT):
+            thrdata->queue_kernel_parameters = &queue_scrypt_kernel;
+            break;
+#endif
+#ifdef USE_SHA256D
         case(KL_DIABLO):
             thrdata->queue_kernel_parameters = &queue_diablo_kernel;
             break;
@@ -1786,16 +1827,10 @@ static bool opencl_thread_init(struct thr_info *thr)
         case(KL_POCLBM):
             thrdata->queue_kernel_parameters = &queue_poclbm_kernel;
             break;
-#if (USE_NEOSCRYPT)
-        case(KL_NEOSCRYPT):
-            thrdata->queue_kernel_parameters = &queue_neoscrypt_kernel;
-            break;
 #endif
-#if (USE_SCRYPT)
-        case(KL_SCRYPT):
-            thrdata->queue_kernel_parameters = &queue_scrypt_kernel;
-            break;
-#endif
+        default:
+        case(KL_VOID):
+            thrdata->queue_kernel_parameters = &queue_void_kernel;
     }
 
     thrdata->res = calloc(BUFFERSIZE, 1);
@@ -1824,10 +1859,15 @@ static bool opencl_thread_init(struct thr_info *thr)
 
 static bool opencl_prepare_work(struct thr_info __maybe_unused *thr, struct work *work) {
 
-    if(opt_neoscrypt || opt_scrypt)
-      work->blk.work = work;
-    else
-      precalc_hash(&work->blk, (uint32_t *) work->midstate, (uint32_t *) (work->data + 64));
+
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
+        precalc_hash(&work->blk, (uint32_t *) work->midstate, (uint32_t *) (work->data + 64));
+    } else
+#endif
+    {
+        work->blk.work = work;
+    }
 
     return(true);
 }
@@ -1849,24 +1889,27 @@ static int64_t opencl_scanhash(struct thr_info *thr, struct work *work,
 	size_t localThreads[1] = { clState->wsize };
 	int64_t hashes;
 
-    int min_intensity, max_intensity;
+    int min_intensity = -127, max_intensity = 127;
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
         min_intensity = MIN_NEOSCRYPT_INTENSITY;
         max_intensity = MAX_NEOSCRYPT_INTENSITY;
     } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         min_intensity = MIN_SCRYPT_INTENSITY;
         max_intensity = MAX_SCRYPT_INTENSITY;
     } else
 #endif
-    {
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
         min_intensity = MIN_SHA256D_INTENSITY;
         max_intensity = MAX_SHA256D_INTENSITY;
-    }
+    } else
+#endif
+    { }
 
     /* Windows timer resolution is only 15.6ms, so oversample 5x */
     if(gpu->dynamic && (++gpu->intervals * dynamic_us) > 78000) {
@@ -1994,3 +2037,5 @@ struct device_api opencl_api = {
 	.thread_shutdown = opencl_thread_shutdown,
 };
 #endif
+
+#endif /* HAVE_OPENCL */

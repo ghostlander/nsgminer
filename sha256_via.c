@@ -18,7 +18,7 @@
 #include <sys/time.h>
 #include "miner.h"
 
-#ifdef WANT_VIA_PADLOCK
+#if defined(USE_SHA256D) && defined(WANT_VIA_PADLOCK)
 
 static void via_sha256(void *hash, void *buf, unsigned len)
 {
@@ -84,5 +84,4 @@ bool scanhash_via(struct thr_info*thr, const unsigned char __maybe_unused *pmids
 	}
 }
 
-#endif /* WANT_VIA_PADLOCK */
-
+#endif /* USE_SHA256D && WANT_VIA_PADLOCK */

@@ -65,12 +65,13 @@
 #include "adl.h"
 #endif
 
-#if (USE_NEOSCRYPT) || (USE_SCRYPT)
+#if defined(USE_NEOSCRYPT) || defined(USE_SCRYPT)
 #include "neoscrypt.h"
 #endif
 
-bool opt_neoscrypt = 0;
-bool opt_scrypt    = 0;
+bool opt_neoscrypt = false;
+bool opt_scrypt    = false;
+bool opt_sha256d   = false;
 
 #ifdef USE_X6500
 #include "ft232r.h"
@@ -1050,7 +1051,28 @@ static char *set_null(const char __maybe_unused *arg)
 
 /* These options are available from config file or commandline */
 static struct opt_table opt_config_table[] = {
+#ifdef USE_NEOSCRYPT
+    OPT_WITHOUT_ARG("--neoscrypt",
+      opt_set_bool, &opt_neoscrypt,
+      "Use the NeoScrypt algorithm for mining"),
+#endif
+#ifdef USE_SCRYPT
+    OPT_WITHOUT_ARG("--scrypt",
+      opt_set_bool, &opt_scrypt,
+      "Use the Scrypt algorithm for mining"),
+#if defined(USE_SCRYPT) && defined(HAVE_OPENCL)
+    OPT_WITH_ARG("--shaders",
+      set_shaders, NULL, NULL,
+      "Specify GPU shaders per card (Scrypt only), comma separated"),
+#endif
+#endif
+#ifdef USE_SHA256D
+    OPT_WITHOUT_ARG("--sha256d",
+      opt_set_bool, &opt_sha256d,
+      "Use the SHA-256d algorithm for mining"),
+#endif
 #ifdef WANT_CPUMINE
+#ifdef USE_SHA256D
 	OPT_WITH_ARG("--algo|-a",
 		     set_algo, show_algo, &opt_algo,
 		     "Specify sha256 implementation for CPU mining:\n"
@@ -1079,6 +1101,7 @@ static struct opt_table opt_config_table[] = {
     "\n\taltivec_4way\tAltivec implementation for PowerPC G4 and G5 machines"
 #endif
 		),
+#endif /* USE_SHA256D */
 #endif
 	OPT_WITH_ARG("--api-allow",
 		     set_api_allow, NULL, NULL,
@@ -1118,9 +1141,11 @@ static struct opt_table opt_config_table[] = {
 			"Use nonce range on bitforce devices if supported"),
 #endif
 #ifdef WANT_CPUMINE
+#ifdef USE_SHA256D
 	OPT_WITH_ARG("--bench-algo|-b",
 		     set_int_0_to_9999, opt_show_intval, &opt_bench_algo,
 		     opt_hidden),
+#endif /* USE_SHA256D */
 #endif
 #if BLKMAKER_VERSION > 1
 	OPT_WITH_ARG("--coinbase-addr",
@@ -1361,20 +1386,10 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--sched-stop",
 		     set_schedtime, NULL, &schedstop,
 		     "Set a time of day in HH:MM to stop mining (will quit without a start time)"),
-#if (USE_NEOSCRYPT)
-    OPT_WITHOUT_ARG("--neoscrypt",
-      opt_set_bool, &opt_neoscrypt,
-      "Use the NeoScrypt algorithm for mining"),
-#endif
-#if (USE_SCRYPT)
-    OPT_WITHOUT_ARG("--scrypt",
-      opt_set_bool, &opt_scrypt,
-      "Use the Scrypt algorithm for mining"),
-#ifdef HAVE_OPENCL
+#if defined(USE_SCRYPT) && defined(HAVE_OPENCL)
     OPT_WITH_ARG("--shaders",
       set_shaders, NULL, NULL,
       "Specify GPU shaders per card (Scrypt only), comma separated"),
-#endif
 #endif
 	OPT_WITH_ARG("--sharelog",
 		     set_sharelog, NULL, NULL,
@@ -1685,6 +1700,7 @@ static bool jobj_binary(const json_t *obj, const char *key,
 	return true;
 }
 
+#if defined(USE_SHA256D) || defined(USE_SCRYPT)
 static void calc_midstate(struct work *work)
 {
 	union {
@@ -1699,6 +1715,7 @@ static void calc_midstate(struct work *work)
 	memcpy(work->midstate, ctx.state, sizeof(work->midstate));
 	swap32tole(work->midstate, work->midstate, 8);
 }
+#endif
 
 static struct work *make_work(void)
 {
@@ -1883,12 +1900,14 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
         return(false);
     }
 
-    if(!opt_neoscrypt) {
+#if defined(USE_SHA256D) || defined(USE_SCRYPT)
+    if(opt_sha256d || opt_scrypt) {
         if(!jobj_binary(res_val, "midstate", work->midstate, sizeof(work->midstate), false)) {
             applog(LOG_DEBUG, "Calculating midstate locally");
             calc_midstate(work);
         }
     }
+#endif
 
     if(!jobj_binary(res_val, "target", work->target, target_size, true)) {
         applog(LOG_ERR, "JSON invalid target");
@@ -2274,17 +2293,22 @@ static void curses_print_status(void)
       efficiency = total_diff_accepted * 2048.0 / (double)total_bytes_xfer;
 
     char *display_algo;
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt)
       display_algo = "NeoScrypt";
     else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt)
       display_algo = "Scrypt";
     else
 #endif
+#ifdef USE_SHA256D
+    if(opt_sha256d)
       display_algo = "SHA-256d";
+    else
+#endif
+      display_algo = "Void";
 
     wattron(statuswin, A_BOLD);
     mvwprintw(statuswin, 0, 0, " "PACKAGE" v"VERSION" - %s : %s",
@@ -3462,7 +3486,9 @@ static void roll_work(struct work *work) {
         if(blkmk_get_data(work->tmpl, work->data, 80, time(NULL), NULL, &work->dataid) < 76)
           applog(LOG_ERR, "Failed to get next data from template; spinning wheels!");
         swap32yes(work->data, work->data, 80 / 4);
-        if(!opt_neoscrypt) calc_midstate(work);
+#if defined(USE_SHA256D) || defined(USE_SCRYPT)
+        if(opt_sha256d || opt_scrypt) calc_midstate(work);
+#endif
         applog(LOG_DEBUG, "Successfully rolled extranonce to dataid %u", work->dataid);
 
     } else {
@@ -4840,28 +4866,32 @@ void write_config(FILE *fcfg)
 		fputs("\",\n\"kernel\" : \"", fcfg);
 		for(i = 0; i < nDevs; i++) {
 			fprintf(fcfg, "%s", i > 0 ? "," : "");
-			switch (gpus[i].kernel) {
-				case KL_NONE: // Shouldn't happen
-					break;
-				case KL_POCLBM:
-					fprintf(fcfg, "poclbm");
-					break;
-				case KL_PHATK:
-					fprintf(fcfg, "phatk");
-					break;
-				case KL_DIAKGCN:
-					fprintf(fcfg, "diakgcn");
-					break;
-				case KL_DIABLO:
-					fprintf(fcfg, "diablo");
-					break;
+
+            switch(gpus[i].kernel) {
                 case(KL_NEOSCRYPT):
                     fprintf(fcfg, "neoscrypt");
                     break;
                 case(KL_SCRYPT):
                     fprintf(fcfg, "scrypt");
                     break;
-			}
+                case(KL_DIABLO):
+                    fprintf(fcfg, "diablo");
+                    break;
+                case(KL_DIAKGCN):
+                    fprintf(fcfg, "diakgcn");
+                    break;
+                case(KL_PHATK):
+                    fprintf(fcfg, "phatk");
+                    break;
+                case(KL_POCLBM):
+                    fprintf(fcfg, "poclbm");
+                    break;
+                default:
+                case(KL_VOID):
+                    fprintf(fcfg, "void");
+                    break;
+            }
+
 		}
 #ifdef USE_SCRYPT
 		fputs("\",\n\"lookup-gap\" : \"", fcfg);
@@ -5551,8 +5581,9 @@ static void *input_thread(void __maybe_unused *userdata)
 			set_options();
 			break;
 		case 'g': case 'G':
-			if (have_opencl)
-				manage_gpu();
+#ifdef HAVE_OPENCL
+            if(have_opencl) manage_gpu();
+#endif
 			break;
 #ifdef HAVE_CURSES
 		case KEY_DOWN:
@@ -6554,7 +6585,9 @@ static void gen_stratum_work(struct pool *pool, struct work *work) {
         free(header);
     }
 
-    if(!opt_neoscrypt) calc_midstate(work);
+#if defined(USE_SHA256D) || defined(USE_SCRYPT)
+    if(opt_sha256d || opt_scrypt) calc_midstate(work);
+#endif
 
 	set_work_target(work, work->sdiff);
 
@@ -6612,6 +6645,7 @@ void submit_work_async(struct work *work_in, struct timeval *tv_work_found)
 	notifier_wake(submit_waiting_notifier);
 }
 
+#ifdef USE_SHA256D
 enum test_nonce2_result hashtest2(struct work *work, bool checktarget)
 {
 	uint32_t *hash2_32 = (uint32_t *)&work->hash[0];
@@ -6629,12 +6663,13 @@ enum test_nonce2_result hashtest2(struct work *work, bool checktarget)
 
 	return TNR_GOOD;
 }
+#endif
 
 /* Quick verification of OpenCL nonces */
 enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce,
   bool checktarget) {
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
 
         neoscrypt((uchar *) work->data, (uchar *) work->hash, 0x80000620);
@@ -6649,7 +6684,7 @@ enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce,
     }
 #endif
 
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
     if(opt_scrypt) {
         uint data[20], i;
 
@@ -6670,10 +6705,17 @@ enum test_nonce2_result _test_nonce2(struct work *work, uint32_t nonce,
     }
 #endif
 
-    uint *work_nonce = (uint *) (work->data + 76);
-    *work_nonce = htole32(nonce);
+#ifdef USE_SHA256D
+    if(opt_sha256d) {
+        uint *work_nonce = (uint *) (work->data + 76);
 
-	return hashtest2(work, checktarget);
+        *work_nonce = htole32(nonce);
+
+        return(hashtest2(work, checktarget));
+    }
+#endif
+
+    return(TNR_BAD);
 }
 
 void submit_nonce(struct thr_info *thr, struct work *work, uint32_t nonce)
@@ -8041,9 +8083,11 @@ int main(int argc, char *argv[])
 	INIT_LIST_HEAD(&submit_waiting);
 
 #ifdef HAVE_OPENCL
-	memset(gpus, 0, sizeof(gpus));
-	for (i = 0; i < MAX_GPUDEVICES; i++)
-		gpus[i].dynamic = true;
+    memset(gpus, 0, sizeof(gpus));
+    for(i = 0; i < MAX_GPUDEVICES; i++) {
+        gpus[i].dynamic = true;
+        gpus[i].kernel = KL_VOID;  /* better safe than sorry */
+    }
 #endif
 
 	schedstart.tm.tm_sec = 1;
@@ -8075,6 +8119,12 @@ int main(int argc, char *argv[])
 		pool->idle = false;
 		successful_connect = true;
 	}
+
+    /* If no algorithm specified, default to NeoScrypt */
+#ifdef USE_NEOSCRYPT
+    if(!opt_neoscrypt && !opt_scrypt && !opt_sha256d)
+      opt_neoscrypt = true;
+#endif
 
 #ifdef USE_X6500
 	if (likely(have_libusb))
@@ -8126,11 +8176,8 @@ int main(int argc, char *argv[])
 		opt_log_output = true;
 
 #ifdef WANT_CPUMINE
-#if (USE_NEOSCRYPT) || (OPT_SCRYPT)
-    if(opt_neoscrypt || opt_scrypt)
       set_algo_quick(&opt_algo);
-    else
-#endif
+#ifdef USE_SHA256D
 	if (0 <= opt_bench_algo) {
 		double rate = bench_algo_stage3(opt_bench_algo);
 
@@ -8168,6 +8215,7 @@ int main(int argc, char *argv[])
 		}
 		exit(0);
 	}
+#endif /* USE_SHA256D */
 #endif
 
 #ifdef HAVE_OPENCL
@@ -8177,29 +8225,25 @@ int main(int argc, char *argv[])
 #endif
 
 #if (USE_ICARUS)
-    if(!opt_neoscrypt || !opt_scrypt) {
-        cairnsmore_api.api_detect();
-        icarus_api.api_detect();
-    }
+    cairnsmore_api.api_detect();
+    icarus_api.api_detect();
 #endif
 
 #if (USE_BITFORCE)
-    if(!opt_neoscrypt || !opt_scrypt)
-      bitforce_api.api_detect();
+    bitforce_api.api_detect();
 #endif
 
 #if (USE_MODMINER)
-    if(!opt_neoscrypt || !opt_scrypt)
-      modminer_api.api_detect();
+    modminer_api.api_detect();
 #endif
 
 #if (USE_X6500)
-    if(likely(have_libusb) && (!opt_neoscrypt || !opt_scrypt))
+    if(likely(have_libusb))
       x6500_api.api_detect();
 #endif
 
 #if (USE_ZTEX)
-    if(likely(have_libusb) && (!opt_neoscrypt || !opt_scrypt))
+    if(likely(have_libusb))
       ztex_api.api_detect();
 #endif
 
@@ -8208,8 +8252,8 @@ int main(int argc, char *argv[])
 #endif
 
 #ifdef USE_X6500
-	if (likely(have_libusb))
-		ft232r_scan_free();
+    if(likely(have_libusb))
+      ft232r_scan_free();
 #endif
 
 	for (i = 0; i < total_devices; ++i)

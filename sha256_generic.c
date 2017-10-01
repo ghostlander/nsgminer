@@ -27,6 +27,8 @@
 #include <string.h>
 #include "miner.h"
 
+#ifdef USE_SHA256D
+
 typedef uint32_t u32;
 typedef uint8_t u8;
 
@@ -281,3 +283,4 @@ bool scanhash_c(struct thr_info*thr, const unsigned char *midstate, unsigned cha
 	}
 }
 
+#endif /* USE_SHA256D */

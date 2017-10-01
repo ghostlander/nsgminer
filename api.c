@@ -2458,7 +2458,7 @@ static bool splitgpuvalue(struct io_data *io_data, char *param, int *gpu, char *
 
 static void gpuintensity(struct io_data *io_data, __maybe_unused SOCKETTYPE c,
   char *param, bool isjson, __maybe_unused char group) {
-    int id, intensity, min_intensity, max_intensity;
+    int id, intensity, min_intensity = -127, max_intensity = 127;
     char *value, intensitystr[7];
 
     if(!splitgpuvalue(io_data, param, &id, &value, isjson))
@@ -2470,22 +2470,25 @@ static void gpuintensity(struct io_data *io_data, __maybe_unused SOCKETTYPE c,
     } else {
         intensity = atoi(value);
 
-#if (USE_NEOSCRYPT)
+#ifdef USE_NEOSCRYPT
         if(opt_neoscrypt) {
             min_intensity = MIN_NEOSCRYPT_INTENSITY;
             max_intensity = MAX_NEOSCRYPT_INTENSITY;
         } else
 #endif
-#if (USE_SCRYPT)
+#ifdef USE_SCRYPT
         if(opt_scrypt) {
             min_intensity = MIN_SCRYPT_INTENSITY;
             max_intensity = MAX_SCRYPT_INTENSITY;
         } else
 #endif
-        {
+#ifdef USE_SHA256D
+        if(opt_sha256d) {
             min_intensity = MIN_SHA256D_INTENSITY;
             max_intensity = MAX_SHA256D_INTENSITY;
-        }
+        } else
+#endif
+        { }
 
         if((intensity < min_intensity) || (intensity > max_intensity)) {
             message(io_data, MSG_INVINT, 0, value, isjson);

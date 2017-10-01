@@ -20,6 +20,8 @@
 #include "findnonce.h"
 #include "miner.h"
 
+#ifdef USE_SHA256D
+
 const uint32_t SHA256_K[64] = {
 	0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
 	0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -131,6 +133,8 @@ void precalc_hash(dev_blk_ctx *blk, uint32_t *state, uint32_t *data)
 	blk->sixA = blk->ctx_g + SHA256_K[6];
 	blk->sevenA = blk->ctx_h + SHA256_K[7];
 }
+
+#endif /* USE_SHA256D */
 
 struct pc_data {
 	struct thr_info *thr;

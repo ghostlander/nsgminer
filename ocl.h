@@ -15,7 +15,7 @@ typedef struct {
 	cl_command_queue commandQueue;
 	cl_program program;
 	cl_mem outputBuffer;
-#ifdef USE_SCRYPT
+#if defined(USE_NEOSCRYPT) || defined(USE_SCRYPT)
 	cl_mem CLbuffer0;
 	cl_mem padbuffer8;
 	size_t padbufsize;

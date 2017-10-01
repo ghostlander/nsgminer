@@ -7,7 +7,7 @@
 
 #include "driver-cpu.h"
 
-#ifdef WANT_SSE2_4WAY
+#if defined(USE_SHA256D) && defined(WANT_SSE2_4WAY)
 
 #include <string.h>
 #include <assert.h>
@@ -488,4 +488,4 @@ static void DoubleBlockSHA256(const void* pin, void* pad, const void *pre, unsig
 
 }
 
-#endif /* WANT_SSE2_4WAY */
+#endif /* USE_SHA256D && WANT_SSE2_4WAY */

@@ -3,6 +3,7 @@
 
 #include "miner.h"
 
+#ifdef HAVE_OPENCL
 
 extern char *print_ndevs_and_exit(int *ndevs);
 extern void *reinit_gpu(void *userdata);
@@ -32,5 +33,7 @@ extern bool have_opencl;
 extern int opt_platform_id;
 
 extern struct device_api opencl_api;
+
+#endif /* HAVE_OPENCL */
 
 #endif /* __DEVICE_GPU_H__ */

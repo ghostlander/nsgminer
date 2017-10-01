@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include "miner.h"
 
+#ifdef USE_SHA256D
+
 typedef uint32_t word32;
 
 static word32 rotrFixed(word32 word, unsigned int shift)
@@ -625,3 +627,5 @@ bool scanhash_asm32(struct thr_info*thr, const unsigned char *midstate,
 }
 
 #endif	// #if defined(WANT_CRYPTOPP_ASM32)
+
+#endif /* USE_SHA256D */
