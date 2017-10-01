@@ -885,35 +885,8 @@ build:
 	if (clState->hasBitAlign) {
 		strcat(CompilerOptions, " -D BITALIGN");
 		applog(LOG_DEBUG, "cl_amd_media_ops found, setting BITALIGN");
-		if (strstr(name, "Cedar") ||
-		    strstr(name, "Redwood") ||
-		    strstr(name, "Juniper") ||
-		    strstr(name, "Cypress" ) ||
-		    strstr(name, "Hemlock" ) ||
-		    strstr(name, "Caicos" ) ||
-		    strstr(name, "Turks" ) ||
-		    strstr(name, "Barts" ) ||
-		    strstr(name, "Cayman" ) ||
-		    strstr(name, "Antilles" ) ||
-		    strstr(name, "Wrestler" ) ||
-		    strstr(name, "Zacate" ) ||
-		    strstr(name, "WinterPark" ))
-		{
-			// BFI_INT patching only works with AMD-APP up to 1084
-			if (strstr(vbuff, "ATI-Stream"))
-				patchbfi = true;
-			else
-			if ((s = strstr(vbuff, "AMD-APP")) && (s = strchr(s, '(')) && atoi(&s[1]) < 1085)
-				patchbfi = true;
-		}
 	} else
 		applog(LOG_DEBUG, "cl_amd_media_ops not found, will not set BITALIGN");
-
-	if (patchbfi) {
-		strcat(CompilerOptions, " -D BFI_INT");
-		applog(LOG_DEBUG, "BFI_INT patch requiring device found, patched source with BFI_INT");
-	} else
-		applog(LOG_DEBUG, "BFI_INT patch requiring device not found, will not BFI_INT patch");
 
 	if (clState->goffset)
 		strcat(CompilerOptions, " -D GOFFSET");
@@ -969,56 +942,6 @@ build:
 	if (unlikely(status != CL_SUCCESS)) {
 		applog(LOG_ERR, "Error %d: Getting program info. CL_PROGRAM_BINARIES (clGetProgramInfo)", status);
 		return NULL;
-	}
-
-	/* Patch the kernel if the hardware supports BFI_INT but it needs to
-	 * be hacked in */
-	if (patchbfi) {
-		unsigned remaining = binary_sizes[slot];
-		char *w = binaries[slot];
-		unsigned int start, length;
-
-		/* Find 2nd incidence of .text, and copy the program's
-		* position and length at a fixed offset from that. Then go
-		* back and find the 2nd incidence of \x7ELF (rewind by one
-		* from ELF) and then patch the opcocdes */
-		if (!advance(&w, &remaining, ".text"))
-			goto build;
-		w++; remaining--;
-		if (!advance(&w, &remaining, ".text")) {
-			/* 32 bit builds only one ELF */
-			w--; remaining++;
-		}
-		memcpy(&start, w + 285, 4);
-		memcpy(&length, w + 289, 4);
-		w = binaries[slot]; remaining = binary_sizes[slot];
-		if (!advance(&w, &remaining, "ELF"))
-			goto build;
-		w++; remaining--;
-		if (!advance(&w, &remaining, "ELF")) {
-			/* 32 bit builds only one ELF */
-			w--; remaining++;
-		}
-		w--; remaining++;
-		w += start; remaining -= start;
-		applog(LOG_DEBUG, "At %p (%u rem. bytes), to begin patching",
-			w, remaining);
-		patch_opcodes(w, length);
-
-		status = clReleaseProgram(clState->program);
-		if (status != CL_SUCCESS) {
-			applog(LOG_ERR, "Error %d: Releasing program. (clReleaseProgram)", status);
-			return NULL;
-		}
-
-		clState->program = clCreateProgramWithBinary(clState->context, 1, &devices[gpu], &binary_sizes[slot], (const unsigned char **)&binaries[slot], &status, NULL);
-		if (status != CL_SUCCESS) {
-			applog(LOG_ERR, "Error %d: Loading Binary into cl_program (clCreateProgramWithBinary)", status);
-			return NULL;
-		}
-
-		/* Program needs to be rebuilt */
-		prog_built = false;
 	}
 
 	free(source);
