@@ -1,6 +1,6 @@
 /*
- * Copyright 2014 Andre Vehreschild
- * Copyright 2016 John Doering
+ * Copyright 2014 Andre Vehreschild <vehre@gmx.de>
+ * Copyright 2016-2017 John Doering <ghostlander@phoenixcoin.org>
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -69,7 +69,7 @@ void nvml_init() {
         /* Try an older interface */
         NVML_nvmlInit = (nvmlReturn_t (*)()) dlsym(hDLL, "nvmlInit");
         if(!NVML_nvmlInit) {
-            applog(LOG_ERR, "NVML: Unable to initialise");
+            applog(LOG_ERR, "NVML: unable to initialise");
             opt_nonvml = true;
             return;
         } else {
@@ -102,9 +102,12 @@ void nvml_init() {
 
     ret = NVML_nvmlInit();
     if(ret != NVML_SUCCESS) {
-        applog(LOG_ERR, "NVML: Initialisation failed with code %s",
+        applog(LOG_ERR, "NVML: initialisation failed with code %s",
           NVML_nvmlErrorString(ret));
+        opt_nonvml = true;
+        return;
     }
+
 }
 
 void nvml_gpu_temp_and_fanspeed(const uint dev, float *temp, int *fanspeed) {
@@ -112,7 +115,11 @@ void nvml_gpu_temp_and_fanspeed(const uint dev, float *temp, int *fanspeed) {
     nvmlDevice_t gpu;
     uint nTemp, nSpeed;
 
-    ret = NVML_nvmlDeviceGetHandleByIndex(dev, &gpu);
+    if(gpus[dev].mapped)
+      ret = NVML_nvmlDeviceGetHandleByIndex(gpus[dev].virtual_adl, &gpu);
+    else
+      ret = NVML_nvmlDeviceGetHandleByIndex(dev, &gpu);
+
     if(ret != NVML_SUCCESS) {
         applog(LOG_ERR, "NVML: GPU %d handle failed with code %s",
           dev, NVML_nvmlErrorString(ret));
@@ -134,7 +141,7 @@ void nvml_print_devices() {
 
     ret = NVML_nvmlDeviceGetCount(&devnum);
     if(ret != NVML_SUCCESS) {
-        applog(LOG_ERR, "NVML: Device number query failed with code %s",
+        applog(LOG_ERR, "NVML: device number query failed with code %s",
           NVML_nvmlErrorString(ret));
         return;
     }
@@ -142,6 +149,14 @@ void nvml_print_devices() {
     applog(LOG_INFO, "NVML found %u device%s%s", \
       devnum, devnum != 1 ? "s" : "", devnum ? ":" : "");
     if(!devnum) return;
+
+    for(dev = 0; dev < nDevs; dev++) {
+        if(gpus[dev].mapped && (gpus[dev].virtual_adl >= devnum))
+          applog(LOG_ERR, "Mapped NVML device %u doesn't exist",
+            gpus[dev].virtual_adl);
+        applog(LOG_INFO, "Mapping OpenCL device %u to NVML device %u", dev,
+          gpus[dev].mapped ? gpus[dev].virtual_adl : dev);
+    }
 
     for(dev = 0; dev < devnum; dev++) {
         char name[NVML_DEVICE_NAME_BUFFER_SIZE];
@@ -169,7 +184,7 @@ void nvml_print_devices() {
             return;
         }
 
-        applog(LOG_INFO, "GPU %u: %s [%s]\n", dev, name, pci.busId);
+        applog(LOG_INFO, "GPU %u: %s [%s]", dev, name, pci.busId);
     }
 }
 
@@ -178,7 +193,7 @@ void nvml_shutdown() {
 
     ret = NVML_nvmlShutdown();
     if(ret != NVML_SUCCESS) {
-        applog(LOG_ERR, "NVML: Unable to shut down");
+        applog(LOG_ERR, "NVML: unable to shut down");
         return;
     }
     if(hDLL) dlclose(hDLL);

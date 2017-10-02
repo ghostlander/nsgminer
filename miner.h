@@ -465,7 +465,7 @@ struct cgpu_info {
 #ifdef HAVE_OPENCL
 	bool mapped;
 	int virtual_gpu;
-	int virtual_adl;
+    uint virtual_adl;
 	int intensity;
 	bool dynamic;
 

@@ -486,37 +486,40 @@ char *set_kernel(char *arg)
 }
 #endif
 
-#ifdef HAVE_ADL
-/* This function allows us to map an adl device to an opencl device for when
- * simple enumeration has failed to match them. */
-char *set_gpu_map(char *arg)
-{
-	int val1 = 0, val2 = 0;
-	char *nextptr;
+#if defined(HAVE_ADL) || defined(HAVE_NVML)
+/* Maps an OpenCL device to an ADL or NVML device if simple enumeration
+ * fails to match them properly */
+char *set_gpu_map(char *arg) {
+    uint val1 = 0, val2 = 0;
+    char *nextptr;
 
-	nextptr = strtok(arg, ",");
-	if (nextptr == NULL)
-		return "Invalid parameters for set gpu map";
-	if (sscanf(arg, "%d:%d", &val1, &val2) != 2)
-		return "Invalid description for map pair";
-	if (val1 < 0 || val1 > MAX_GPUDEVICES || val2 < 0 || val2 > MAX_GPUDEVICES)
-		return "Invalid value passed to set_gpu_map";
+    nextptr = strtok(arg, ",");
+    if(!nextptr)
+      return("Invalid GPU mapping parameters");
 
-	gpus[val1].virtual_adl = val2;
-	gpus[val1].mapped = true;
+    if(sscanf(arg, "%u:%u", &val1, &val2) != 2)
+      return("Invalid GPU mapping description");
 
-	while ((nextptr = strtok(NULL, ",")) != NULL) {
-		if (sscanf(nextptr, "%d:%d", &val1, &val2) != 2)
-			return "Invalid description for map pair";
-		if (val1 < 0 || val1 > MAX_GPUDEVICES || val2 < 0 || val2 > MAX_GPUDEVICES)
-			return "Invalid value passed to set_gpu_map";
-		gpus[val1].virtual_adl = val2;
-		gpus[val1].mapped = true;
-	}
+    if((val1 >= MAX_GPUDEVICES) || (val2 >= MAX_GPUDEVICES))
+      return("Invalid GPU mapping value");
 
-	return NULL;
+    gpus[val1].virtual_adl = val2;
+    gpus[val1].mapped = true;
+
+    while(nextptr = strtok(NULL, ",")) {
+        if(sscanf(nextptr, "%u:%u", &val1, &val2) != 2)
+          return("Invalid GPU mapping description");
+        if((val1 >= MAX_GPUDEVICES) || (val2 >= MAX_GPUDEVICES))
+          return("Invalid GPU mapping value");
+        gpus[val1].virtual_adl = val2;
+        gpus[val1].mapped = true;
+    }
+
+    return(NULL);
 }
+#endif
 
+#ifdef HAVE_ADL
 void get_intrange(char *arg, int *val1, int *val2)
 {
 	if (sscanf(arg, "%d-%d", val1, val2) == 1) {

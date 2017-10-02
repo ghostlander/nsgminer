@@ -1222,6 +1222,11 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--gpu-threads|-g",
 		     set_int_1_to_10, opt_show_intval, &opt_g_threads,
 		     "Number of threads per GPU (1 - 10)"),
+#if defined(HAVE_ADL) || defined(HAVE_NVML)
+    OPT_WITH_ARG("--gpu-map",
+      set_gpu_map, NULL, NULL,
+      "Map OpenCL to ADL or NVML device order manually, paired CSV (e.g. 1:0,2:1 maps OpenCL 1 to ADL 0, 2 to 1)"),
+#endif
 #ifdef HAVE_ADL
 	OPT_WITH_ARG("--gpu-engine",
 		     set_gpu_engine, NULL, NULL,
@@ -1229,9 +1234,6 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--gpu-fan",
 		     set_gpu_fan, NULL, NULL,
 		     "GPU fan percentage range - one value, range and/or comma separated list (e.g. 0-85,85,65)"),
-	OPT_WITH_ARG("--gpu-map",
-		     set_gpu_map, NULL, NULL,
-		     "Map OpenCL to ADL device order manually, paired CSV (e.g. 1:0,2:1 maps OpenCL 1 to ADL 0, 2 to 1)"),
 	OPT_WITH_ARG("--gpu-memclock",
 		     set_gpu_memclock, NULL, NULL,
 		     "Set the GPU memory (over)clock in MHz - one value for all or separate by commas for per card"),
@@ -1292,14 +1294,14 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--net-delay",
 			opt_set_bool, &opt_delaynet,
 			"Impose small delays in networking to not overload slow routers"),
-	OPT_WITHOUT_ARG("--no-adl",
-			opt_set_bool, &opt_noadl,
+    OPT_WITHOUT_ARG("--no-adl",
+      opt_set_bool, &opt_noadl,
 #ifdef HAVE_ADL
-			"Disable the ATI display library used for monitoring and setting GPU parameters"
+      "Disable the AMD Display Library used for monitoring and setting GPU parameters"
 #else
-			opt_hidden
+      opt_hidden
 #endif
-			),
+      ),
     OPT_WITHOUT_ARG("--no-nvml",
       opt_set_bool, &opt_nonvml,
 #ifdef HAVE_NVML
