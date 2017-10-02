@@ -1648,10 +1648,12 @@ static void get_opencl_statline_before(char *buf, struct cgpu_info *gpu) {
         else
           tailsprintf(buf, "       ");
 
-        if(fanspeed > 0)
-          tailsprintf(buf, "%4dRPM ", fanspeed > 9999 ? 9999 : fanspeed);
-        else
+        if(!fanspeed)
           tailsprintf(buf, "        ");
+        else if(fanspeed <= 100)
+          tailsprintf(buf, "%3d%%    ", fanspeed);
+        else
+          tailsprintf(buf, "%4dRPM ", fanspeed > 9999 ? 9999 : fanspeed);
 
         tailsprintf(buf, "| ");
         return;
