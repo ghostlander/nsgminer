@@ -4,7 +4,7 @@
  * Copyright 2012-2013 Andrew Smith
  * Copyright 2011 Glenn Francis Murray
  * Copyright 2010-2011 Jeff Garzik
- * Copyright 2015-2016 John Doering
+ * Copyright 2015-2017 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -334,6 +334,8 @@ enum dev_enable {
 enum cl_kernels {
     KL_VOID,
     KL_NEOSCRYPT,
+    KL_NEOSCRYPT_VLIW,
+    KL_NEOSCRYPT_VLIWP,
     KL_SCRYPT,
     KL_DIABLO,
     KL_DIAKGCN,

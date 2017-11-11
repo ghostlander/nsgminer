@@ -4,7 +4,7 @@ dnl * Copyright 2010-2011 Jeff Garzik
 dnl * Copyright 2012 Xiangfu
 dnl * Copyright 2011 Rusty Russell
 dnl * Copyright 2011 Mark Crichton
-dnl * Copyright 2015-2016 John Doering
+dnl * Copyright 2015-2017 John Doering
 dnl *
 dnl * This program is free software; you can redistribute it and/or modify it
 dnl * under the terms of the GNU General Public License as published by the Free
@@ -650,6 +650,8 @@ AC_DEFINE_UNQUOTED([POCLBM_KERNNAME], ["poclbm"], [Filename for the poclbm kerne
 AC_DEFINE_UNQUOTED([DIAKGCN_KERNNAME], ["diakgcn"], [Filename for the diakgcn kernel])
 AC_DEFINE_UNQUOTED([DIABLO_KERNNAME], ["diablo"], [Filename for the diablo kernel])
 AC_DEFINE_UNQUOTED([NEOSCRYPT_KERNNAME], ["neoscrypt"], [Filename for the NeoScrypt kernel])
+AC_DEFINE_UNQUOTED([NEOSCRYPT_VLIW_KERNNAME], ["neoscrypt_vliw"], [Filename for the NeoScrypt VLIW kernel])
+AC_DEFINE_UNQUOTED([NEOSCRYPT_VLIWP_KERNNAME], ["neoscrypt_vliwp"], [Filename for the NeoScrypt VLIW (parallel) kernel])
 AC_DEFINE_UNQUOTED([SCRYPT_KERNNAME], ["scrypt"], [Filename for the Scrypt kernel])
 
 AC_SUBST(PTHREAD_FLAGS)

@@ -3,7 +3,7 @@
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2012-2013 Andrew Smith
  * Copyright 2010 Jeff Garzik
- * Copyright 2015-2016 John Doering
+ * Copyright 2015-2017 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -1265,9 +1265,9 @@ static struct opt_table opt_config_table[] = {
 	             "Specify a path to where bitstream and kernel files are"),
 #endif
 #ifdef HAVE_OPENCL
-	OPT_WITH_ARG("--kernel|-k",
-		     set_kernel, NULL, NULL,
-		     "Override sha256 kernel to use (diablo, poclbm, phatk or diakgcn) - one value or comma separated"),
+    OPT_WITH_ARG("--kernel|-k",
+      set_kernel, NULL, NULL,
+      "Specify an OpenCL kernel to use, one value or comma separated"),
 #endif
 #ifdef USE_ICARUS
 	OPT_WITH_ARG("--icarus-options",
@@ -4872,6 +4872,12 @@ void write_config(FILE *fcfg)
             switch(gpus[i].kernel) {
                 case(KL_NEOSCRYPT):
                     fprintf(fcfg, "neoscrypt");
+                    break;
+                case(KL_NEOSCRYPT_VLIW):
+                    fprintf(fcfg, "neoscrypt_vliw");
+                    break;
+                case(KL_NEOSCRYPT_VLIWP):
+                    fprintf(fcfg, "neoscrypt_vliwp");
                     break;
                 case(KL_SCRYPT):
                     fprintf(fcfg, "scrypt");

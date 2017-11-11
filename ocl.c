@@ -1,7 +1,7 @@
 /*
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2012-2013 Luke Dashjr
- * Copyright 2015-2016 John Doering
+ * Copyright 2015-2017 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -641,6 +641,16 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
             /* NeoScrypt only supports vector 1 */
             cgpu->vwidth = 1;
             break;
+        case(KL_NEOSCRYPT_VLIW):
+            strcpy(filename, NEOSCRYPT_VLIW_KERNNAME".cl");
+            strcpy(binaryfilename, NEOSCRYPT_VLIW_KERNNAME);
+            cgpu->vwidth = 1;
+            break;
+        case(KL_NEOSCRYPT_VLIWP):
+            strcpy(filename, NEOSCRYPT_VLIWP_KERNNAME".cl");
+            strcpy(binaryfilename, NEOSCRYPT_VLIWP_KERNNAME);
+            cgpu->vwidth = 1;
+            break;
         case(KL_SCRYPT):
             strcpy(filename, SCRYPT_KERNNAME".cl");
             strcpy(binaryfilename, SCRYPT_KERNNAME);
@@ -691,8 +701,10 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
 
 #ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
+        ullong thr_alloc = 32768;
         uint i;
-        cgpu->max_global_threads = (uint)(cgpu->max_alloc / 32768ULL);
+        if(clState->chosen_kernel == KL_NEOSCRYPT_VLIWP) thr_alloc = 65536;
+        cgpu->max_global_threads = (uint)(cgpu->max_alloc / thr_alloc);
         for(i = MIN_NEOSCRYPT_INTENSITY; i <= MAX_NEOSCRYPT_INTENSITY; i++) {
             if((1U << i) <= cgpu->max_global_threads) {
                 cgpu->max_intensity = i;
@@ -991,7 +1003,9 @@ built:
 
 #ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
-        clState->padbufsize = (1U << cgpu->intensity) * 32768;
+        ullong thr_alloc = 32768;
+        if(clState->chosen_kernel == KL_NEOSCRYPT_VLIWP) thr_alloc = 65536;
+        clState->padbufsize = (1U << cgpu->intensity) * thr_alloc;
         applog(LOG_DEBUG, "Allocating %llu bytes of global memory for NeoScrypt",
          (ullong)clState->padbufsize);
 

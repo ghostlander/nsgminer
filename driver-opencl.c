@@ -2,7 +2,7 @@
  * Copyright 2011-2012 Con Kolivas
  * Copyright 2011-2013 Luke Dashjr
  * Copyright 2010 Jeff Garzik
- * Copyright 2015-2016 John Doering
+ * Copyright 2015-2017 John Doering
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -440,6 +440,10 @@ static enum cl_kernels select_kernel(char *arg) {
 #ifdef USE_NEOSCRYPT
     if(!strcmp(arg, "neoscrypt"))
       return(KL_NEOSCRYPT);
+    if(!strcmp(arg, "neoscrypt_vliw"))
+      return(KL_NEOSCRYPT_VLIW);
+    if(!strcmp(arg, "neoscrypt_vliwp"))
+      return(KL_NEOSCRYPT_VLIWP);
 #endif
 #ifdef USE_SCRYPT
     if(!strcmp(arg, "scrypt"))
@@ -464,7 +468,7 @@ char *set_kernel(char *arg)
 	int i, device = 0;
 	char *nextptr;
 
-    if(opt_neoscrypt || opt_scrypt)
+    if(opt_scrypt)
       return("No user selectable kernel available");
 
 	nextptr = strtok(arg, ",");
@@ -1759,6 +1763,12 @@ static bool opencl_thread_prepare(struct thr_info *thr)
             case(KL_NEOSCRYPT):
                 cgpu->kname = "neoscrypt";
                 break;
+            case(KL_NEOSCRYPT_VLIW):
+                cgpu->kname = "neoscrypt_vliw";
+                break;
+            case(KL_NEOSCRYPT_VLIWP):
+                cgpu->kname = "neoscrypt_vliwp";
+                break;
 #endif
 #ifdef USE_SCRYPT
             case(KL_SCRYPT):
@@ -1811,6 +1821,8 @@ static bool opencl_thread_init(struct thr_info *thr)
     switch(clState->chosen_kernel) {
 #ifdef USE_NEOSCRYPT
         case(KL_NEOSCRYPT):
+        case(KL_NEOSCRYPT_VLIW):
+        case(KL_NEOSCRYPT_VLIWP):
             thrdata->queue_kernel_parameters = &queue_neoscrypt_kernel;
             break;
 #endif
