@@ -1879,7 +1879,7 @@ static bool work_decode(struct pool *pool, struct work *work, json_t *val)
 #endif
 		if (blkmk_get_data(work->tmpl, work->data, 80, time(NULL), NULL, &work->dataid) < 76)
 			return false;
-		swap32yes(work->data, work->data, 80 / 4);
+        if(!opt_neoscrypt) swap32yes(work->data, work->data, 80 / 4);
 		memcpy(&work->data[80], "\0\0\0\x80\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\x80\x02\0\0", 48);
 
 		const struct blktmpl_longpoll_req *lp;
@@ -2747,13 +2747,25 @@ static char *submit_upstream_work_request(struct work *work)
 	char *s, *sd;
 	struct pool *pool = work->pool;
 
-	if (work->tmpl) {
-		unsigned char data[80];
-		swap32yes(data, work->data, 80 / 4);
-		json_t *req = blkmk_submit_jansson(work->tmpl, data, work->dataid, le32toh(*((uint32_t*)&work->data[76])));
-		s = json_dumps(req, 0);
-		json_decref(req);
-		sd = bin2hex(data, 80);
+    if(work->tmpl) {
+
+        json_t *req;
+        if(opt_neoscrypt) {
+            req = blkmk_submit_jansson(work->tmpl, work->data, work->dataid,
+              be32toh(*((uint32_t *) &work->data[76])));
+            s = json_dumps(req, 0);
+            json_decref(req);
+            sd = bin2hex(work->data, 80);
+        } else {
+            uchar data[80];
+            swap32yes(data, work->data, 80 / 4);
+            req = blkmk_submit_jansson(work->tmpl, data, work->dataid,
+              le32toh(*((uint32_t *) &work->data[76])));
+            s = json_dumps(req, 0);
+            json_decref(req);
+            sd = bin2hex(data, 80);
+    }
+
 	} else {
 
 	/* build hex string */
@@ -3487,7 +3499,7 @@ static void roll_work(struct work *work) {
 
         if(blkmk_get_data(work->tmpl, work->data, 80, time(NULL), NULL, &work->dataid) < 76)
           applog(LOG_ERR, "Failed to get next data from template; spinning wheels!");
-        swap32yes(work->data, work->data, 80 / 4);
+        if(!opt_neoscrypt) swap32yes(work->data, work->data, 80 / 4);
 #if defined(USE_SHA256D) || defined(USE_SCRYPT)
         if(opt_sha256d || opt_scrypt) calc_midstate(work);
 #endif

@@ -47,6 +47,12 @@ size_t blkmk_address_to_script(void *out, size_t outsz, const char *addr) {
 	switch (addrver) {
 		case   0:  // Bitcoin pubkey hash
 		case 111:  // Testnet pubkey hash
+        case(14):  /* Feathercoin pubkey hash */
+        case(27):  /* Ufocoin pubkey hash */
+        case(39):  /* Guncoin pubkey hash */
+        case(40):  /* Halcyon pubkey hash */
+        case(56):  /* Phoenixcoin pubkey hash */
+        case(115): /* Orbitcoin pubkey hash */
 			if (outsz < (rv = 25))
 				return rv;
 			cout[ 0] = 0x76;  // OP_DUP
