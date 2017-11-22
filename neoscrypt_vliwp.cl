@@ -27,8 +27,13 @@
 
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20
  * Optimised for the AMD VLIW4 and VLIW5 architectures
- * v8 (parallel), 11-Nov-2017 */
+ * v8a (parallel), 22-Nov-2017 */
 
+
+#if (__ATI_RV770__) || (__ATI_RV730__) || (__ATI_RV710__)
+/* AMD TeraScale with OpenCL / VLIW5 (all HD4000 series) */
+#define OLD_VLIW 1
+#endif
 
 #if(__Cypress__) || (__Barts__) || (__Juniper__) || \
 (__Turks__) || (__Caicos__) || (__Redwood__) || (__Cedar__) || \
@@ -38,11 +43,7 @@
  * some HD83x0 and HD84x0 OEM cards);
  * AMD TeraScale 3 / VLIW4 (HD69x0, HD73x0, HD74x0, HD75x0, HD76x0,
  * HD83x0, HD84x0, HD85x0, HD86x0, R5 220, R5 235[X] cards and APUs) */
-#define VLIW 1
-#else
-/* (__ATI_RV770__) || (__ATI_RV730__) || (__ATI_RV710__) */
-/* AMD TeraScale with OpenCL / VLIW5 (all HD4000 series) */
-#define OLD_VLIW 1
+#pragma OPENCL EXTENSION cl_amd_media_ops : enable
 #endif
 
 #define SALSA_CHACHA_SCALAR 0
@@ -51,11 +52,8 @@
 #define SALSA_CHACHA_UNROLL_LEVEL 2
 #define BLAKE2S_COMPACT 0
 
-#if (VLIW)
-/* Use amd_bitalign() because amd_bytealign() might be broken in old drivers */
-#pragma OPENCL EXTENSION cl_amd_media_ops : enable
-#endif
 
+/* Use amd_bitalign() because amd_bytealign() might be broken in old drivers */
 
 /* 32-byte memcpy() of possibly unaligned memory to 4-byte aligned memory */
 void neoscrypt_copy32(void *restrict dstp, const void *restrict srcp,
@@ -63,18 +61,7 @@ void neoscrypt_copy32(void *restrict dstp, const void *restrict srcp,
     uint *dst = (uint *) dstp;
     uint *src = (uint *) srcp;
 
-#if (VLIW)
-    offset = amd_bitalign(offset, offset, 29U);
-
-    dst[0] = amd_bitalign(src[1], src[0], offset);
-    dst[1] = amd_bitalign(src[2], src[1], offset);
-    dst[2] = amd_bitalign(src[3], src[2], offset);
-    dst[3] = amd_bitalign(src[4], src[3], offset);
-    dst[4] = amd_bitalign(src[5], src[4], offset);
-    dst[5] = amd_bitalign(src[6], src[5], offset);
-    dst[6] = amd_bitalign(src[7], src[6], offset);
-    dst[7] = amd_bitalign(src[8], src[7], offset);
-#else
+#if (OLD_VLIW)
     offset <<= 3;
     uint roffset = 32U - offset;
 
@@ -86,6 +73,17 @@ void neoscrypt_copy32(void *restrict dstp, const void *restrict srcp,
     dst[5] = ((uint)((ulong)src[6] << roffset) | (src[5] >> offset));
     dst[6] = ((uint)((ulong)src[7] << roffset) | (src[6] >> offset));
     dst[7] = ((uint)((ulong)src[8] << roffset) | (src[7] >> offset));
+#else
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0] = amd_bitalign(src[1], src[0], offset);
+    dst[1] = amd_bitalign(src[2], src[1], offset);
+    dst[2] = amd_bitalign(src[3], src[2], offset);
+    dst[3] = amd_bitalign(src[4], src[3], offset);
+    dst[4] = amd_bitalign(src[5], src[4], offset);
+    dst[5] = amd_bitalign(src[6], src[5], offset);
+    dst[6] = amd_bitalign(src[7], src[6], offset);
+    dst[7] = amd_bitalign(src[8], src[7], offset);
 #endif
 }
 
@@ -95,26 +93,7 @@ void neoscrypt_copy64(void *restrict dstp, const void *restrict srcp,
     uint *dst = (uint *) dstp;
     uint *src = (uint *) srcp;
 
-#if (VLIW)
-    offset = amd_bitalign(offset, offset, 29U);
-
-    dst[0]  = amd_bitalign(src[1],  src[0], offset);
-    dst[1]  = amd_bitalign(src[2],  src[1], offset);
-    dst[2]  = amd_bitalign(src[3],  src[2], offset);
-    dst[3]  = amd_bitalign(src[4],  src[3], offset);
-    dst[4]  = amd_bitalign(src[5],  src[4], offset);
-    dst[5]  = amd_bitalign(src[6],  src[5], offset);
-    dst[6]  = amd_bitalign(src[7],  src[6], offset);
-    dst[7]  = amd_bitalign(src[8],  src[7], offset);
-    dst[8]  = amd_bitalign(src[9],  src[8], offset);
-    dst[9]  = amd_bitalign(src[10], src[9], offset);
-    dst[10] = amd_bitalign(src[11], src[10], offset);
-    dst[11] = amd_bitalign(src[12], src[11], offset);
-    dst[12] = amd_bitalign(src[13], src[12], offset);
-    dst[13] = amd_bitalign(src[14], src[13], offset);
-    dst[14] = amd_bitalign(src[15], src[14], offset);
-    dst[15] = amd_bitalign(src[16], src[15], offset);
-#else
+#if (OLD_VLIW)
     offset <<= 3;
     uint roffset = 32U - offset;
 
@@ -134,6 +113,25 @@ void neoscrypt_copy64(void *restrict dstp, const void *restrict srcp,
     dst[13] = ((uint)((ulong)src[14] << roffset) | (src[13] >> offset));
     dst[14] = ((uint)((ulong)src[15] << roffset) | (src[14] >> offset));
     dst[15] = ((uint)((ulong)src[16] << roffset) | (src[15] >> offset));
+#else
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0]  = amd_bitalign(src[1],  src[0], offset);
+    dst[1]  = amd_bitalign(src[2],  src[1], offset);
+    dst[2]  = amd_bitalign(src[3],  src[2], offset);
+    dst[3]  = amd_bitalign(src[4],  src[3], offset);
+    dst[4]  = amd_bitalign(src[5],  src[4], offset);
+    dst[5]  = amd_bitalign(src[6],  src[5], offset);
+    dst[6]  = amd_bitalign(src[7],  src[6], offset);
+    dst[7]  = amd_bitalign(src[8],  src[7], offset);
+    dst[8]  = amd_bitalign(src[9],  src[8], offset);
+    dst[9]  = amd_bitalign(src[10], src[9], offset);
+    dst[10] = amd_bitalign(src[11], src[10], offset);
+    dst[11] = amd_bitalign(src[12], src[11], offset);
+    dst[12] = amd_bitalign(src[13], src[12], offset);
+    dst[13] = amd_bitalign(src[14], src[13], offset);
+    dst[14] = amd_bitalign(src[15], src[14], offset);
+    dst[15] = amd_bitalign(src[16], src[15], offset);
 #endif
 }
 
@@ -143,18 +141,7 @@ void neoscrypt_xor32_ua(void *restrict dstp, const void *restrict srcp,
     uint *dst = (uint *) dstp;
     uint *src = (uint *) srcp;
 
-#if (VLIW)
-    offset = amd_bitalign(offset, offset, 29U);
-
-    dst[0] ^= amd_bitalign(src[1], src[0], offset);
-    dst[1] ^= amd_bitalign(src[2], src[1], offset);
-    dst[2] ^= amd_bitalign(src[3], src[2], offset);
-    dst[3] ^= amd_bitalign(src[4], src[3], offset);
-    dst[4] ^= amd_bitalign(src[5], src[4], offset);
-    dst[5] ^= amd_bitalign(src[6], src[5], offset);
-    dst[6] ^= amd_bitalign(src[7], src[6], offset);
-    dst[7] ^= amd_bitalign(src[8], src[7], offset);
-#else
+#if (OLD_VLIW)
     offset <<= 3;
     uint roffset = 32U - offset;
 
@@ -166,6 +153,17 @@ void neoscrypt_xor32_ua(void *restrict dstp, const void *restrict srcp,
     dst[5] ^= ((uint)((ulong)src[6] << roffset) | (src[5] >> offset));
     dst[6] ^= ((uint)((ulong)src[7] << roffset) | (src[6] >> offset));
     dst[7] ^= ((uint)((ulong)src[8] << roffset) | (src[7] >> offset));
+#else
+    offset = amd_bitalign(offset, offset, 29U);
+
+    dst[0] ^= amd_bitalign(src[1], src[0], offset);
+    dst[1] ^= amd_bitalign(src[2], src[1], offset);
+    dst[2] ^= amd_bitalign(src[3], src[2], offset);
+    dst[3] ^= amd_bitalign(src[4], src[3], offset);
+    dst[4] ^= amd_bitalign(src[5], src[4], offset);
+    dst[5] ^= amd_bitalign(src[6], src[5], offset);
+    dst[6] ^= amd_bitalign(src[7], src[6], offset);
+    dst[7] ^= amd_bitalign(src[8], src[7], offset);
 #endif
 }
 
@@ -176,22 +174,7 @@ void neoscrypt_xor32_ua_it(void *restrict dstp, const void *restrict srcp,
     uint *src = (uint *) srcp;
     uint i;
 
-#if (VLIW)
-    offset = amd_bitalign(offset, offset, 29U);
-
-    it = amd_bitalign(it, it, 29U);
-
-    for(i = 0; i < it; i += 8) {
-        dst[i]     ^= amd_bitalign(src[i + 1], src[i],     offset);
-        dst[i + 1] ^= amd_bitalign(src[i + 2], src[i + 1], offset);
-        dst[i + 2] ^= amd_bitalign(src[i + 3], src[i + 2], offset);
-        dst[i + 3] ^= amd_bitalign(src[i + 4], src[i + 3], offset);
-        dst[i + 4] ^= amd_bitalign(src[i + 5], src[i + 4], offset);
-        dst[i + 5] ^= amd_bitalign(src[i + 6], src[i + 5], offset);
-        dst[i + 6] ^= amd_bitalign(src[i + 7], src[i + 6], offset);
-        dst[i + 7] ^= amd_bitalign(src[i + 8], src[i + 7], offset);
-    }
-#else
+#if (OLD_VLIW)
     offset <<= 3;
     uint roffset = 32U - offset;
 
@@ -206,6 +189,21 @@ void neoscrypt_xor32_ua_it(void *restrict dstp, const void *restrict srcp,
         dst[i + 6] ^= ((uint)((ulong)src[i + 7] << roffset) | (src[i + 6] >> offset));
         dst[i + 7] ^= ((uint)((ulong)src[i + 8] << roffset) | (src[i + 7] >> offset));
     }
+#else
+    offset = amd_bitalign(offset, offset, 29U);
+
+    it = amd_bitalign(it, it, 29U);
+
+    for(i = 0; i < it; i += 8) {
+        dst[i]     ^= amd_bitalign(src[i + 1], src[i],     offset);
+        dst[i + 1] ^= amd_bitalign(src[i + 2], src[i + 1], offset);
+        dst[i + 2] ^= amd_bitalign(src[i + 3], src[i + 2], offset);
+        dst[i + 3] ^= amd_bitalign(src[i + 4], src[i + 3], offset);
+        dst[i + 4] ^= amd_bitalign(src[i + 5], src[i + 4], offset);
+        dst[i + 5] ^= amd_bitalign(src[i + 6], src[i + 5], offset);
+        dst[i + 6] ^= amd_bitalign(src[i + 7], src[i + 6], offset);
+        dst[i + 7] ^= amd_bitalign(src[i + 8], src[i + 7], offset);
+    }
 #endif
 }
 
@@ -218,7 +216,20 @@ void neoscrypt_xor32_au(void *restrict dstp, const void *restrict srcp,
 
     /* OpenCL cannot shift uint by 32 to zero value */
 
-#if (VLIW)
+#if (OLD_VLIW)
+    offset <<= 3;
+    roffset = 32U - offset;
+
+    dst[0] ^= (src[0] << offset);
+    dst[1] ^= ((src[1] << offset) | (uint)((ulong)src[0] >> roffset));
+    dst[2] ^= ((src[2] << offset) | (uint)((ulong)src[1] >> roffset));
+    dst[3] ^= ((src[3] << offset) | (uint)((ulong)src[2] >> roffset));
+    dst[4] ^= ((src[4] << offset) | (uint)((ulong)src[3] >> roffset));
+    dst[5] ^= ((src[5] << offset) | (uint)((ulong)src[4] >> roffset));
+    dst[6] ^= ((src[6] << offset) | (uint)((ulong)src[5] >> roffset));
+    dst[7] ^= ((src[7] << offset) | (uint)((ulong)src[6] >> roffset));
+    dst[8] ^= (uint)((ulong)src[7] >> roffset);
+#else
     offset = amd_bitalign(offset, offset, 29U);
     roffset = 32U - offset;
     uint mask = amd_bitalign(0U, ~0U, offset);
@@ -232,19 +243,6 @@ void neoscrypt_xor32_au(void *restrict dstp, const void *restrict srcp,
     dst[6] ^= amd_bitalign(src[6], bitselect(src[5], src[6], mask), roffset);
     dst[7] ^= amd_bitalign(src[7], bitselect(src[6], src[7], mask), roffset);
     dst[8] ^= amd_bitalign(0U,     bitselect(src[7], 0U,     mask), roffset);
-#else
-    offset <<= 3;
-    roffset = 32U - offset;
-
-    dst[0] ^= (src[0] << offset);
-    dst[1] ^= ((src[1] << offset) | (uint)((ulong)src[0] >> roffset));
-    dst[2] ^= ((src[2] << offset) | (uint)((ulong)src[1] >> roffset));
-    dst[3] ^= ((src[3] << offset) | (uint)((ulong)src[2] >> roffset));
-    dst[4] ^= ((src[4] << offset) | (uint)((ulong)src[3] >> roffset));
-    dst[5] ^= ((src[5] << offset) | (uint)((ulong)src[4] >> roffset));
-    dst[6] ^= ((src[6] << offset) | (uint)((ulong)src[5] >> roffset));
-    dst[7] ^= ((src[7] << offset) | (uint)((ulong)src[6] >> roffset));
-    dst[8] ^= (uint)((ulong)src[7] >> roffset);
 #endif
 }
 
