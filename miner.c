@@ -140,7 +140,7 @@ unsigned long long global_hashrate;
 int opt_dynamic_interval = 7;
 uint opencl_devnum;
 int nDevs;
-int opt_g_threads = 2;
+int opt_g_threads = 1;
 int gpu_threads;
 #endif
 
@@ -1061,9 +1061,15 @@ static struct opt_table opt_config_table[] = {
       opt_set_bool, &opt_scrypt,
       "Use the Scrypt algorithm for mining"),
 #if defined(USE_SCRYPT) && defined(HAVE_OPENCL)
+    OPT_WITH_ARG("--lookup-gap",
+      set_lookup_gap, NULL, NULL,
+      "Specify GPU look-up gap (Scrypt only), comma separated"),
     OPT_WITH_ARG("--shaders",
       set_shaders, NULL, NULL,
       "Specify GPU shaders per card (Scrypt only), comma separated"),
+    OPT_WITH_ARG("--thread-concurrency",
+      set_thread_concurrency, NULL, NULL,
+      "Specify GPU thread concurrency per card (Scrypt only), comma separated"),
 #endif
 #endif
 #ifdef USE_SHA256D
@@ -1250,11 +1256,6 @@ static struct opt_table opt_config_table[] = {
 		     set_gpu_vddc, NULL, NULL,
 		     "Set the GPU voltage in Volts - one value for all or separate by commas for per card"),
 #endif
-#ifdef USE_SCRYPT
-	OPT_WITH_ARG("--lookup-gap",
-		     set_lookup_gap, NULL, NULL,
-		     "Set GPU lookup gap for scrypt mining, comma separated"),
-#endif
 	OPT_WITH_ARG("--intensity|-I",
 		     set_intensity, NULL, NULL,
 		     "Intensity of GPU scanning (d or fixed number within range; default: d to maintain desktop interactivity)"),
@@ -1267,7 +1268,22 @@ static struct opt_table opt_config_table[] = {
 #ifdef HAVE_OPENCL
     OPT_WITH_ARG("--kernel|-k",
       set_kernel, NULL, NULL,
-      "Specify an OpenCL kernel to use, one value or comma separated"),
+      "Specify an OpenCL kernel to use, one value or comma separated"
+#ifdef USE_NEOSCRYPT
+      "\n\tneoscrypt\tgeneric NeoScrypt kernel"
+      "\n\tneoscrypt_vliw\tNeoScrypt AMD VLIW kernel"
+      "\n\tneoscrypt_vliwp\tNeoScrypt AMD VLIW kernel (parallel)"
+#endif
+#ifdef USE_SCRYPT
+      "\n\tscrypt\t\tgeneric Scrypt kernel"
+#endif
+#ifdef USE_SHA256D
+      "\n\tdiablo\t\tSHA-256d kernel by Diablo3D"
+      "\n\tdiakgcn\t\tSHA-256d kernel by Diapolo for AMD GCN"
+      "\n\tphatk\t\tSHA-256d kernel by Phateus"
+      "\n\tpoclbm\t\tSHA-256d kernel of the Python OpenCL Bitcoin Miner"
+#endif
+      ),
 #endif
 #ifdef USE_ICARUS
 	OPT_WITH_ARG("--icarus-options",
@@ -1438,11 +1454,6 @@ static struct opt_table opt_config_table[] = {
 			opt_hidden
 #endif
 	),
-#if defined(USE_SCRYPT) && defined(HAVE_OPENCL)
-	OPT_WITH_ARG("--thread-concurrency",
-		     set_thread_concurrency, NULL, NULL,
-		     "Set GPU thread concurrency for scrypt mining, comma separated"),
-#endif
     OPT_WITH_ARG("--url|-o",
       set_url, NULL, NULL,
       "URL for a JSON-RPC server"),

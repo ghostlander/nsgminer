@@ -15,7 +15,7 @@ dnl * any later version.  See COPYING for more details.
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_maj], [0])
 m4_define([v_min], [9])
-m4_define([v_mic], [2])
+m4_define([v_mic], [3])
 ##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##--##
 m4_define([v_ver], [v_maj.v_min.v_mic])
 m4_define([lt_rev], m4_eval(v_maj + v_min))
@@ -155,7 +155,7 @@ fi
 scrypt="no"
 
 AC_ARG_ENABLE([scrypt],
-	[AC_HELP_STRING([--disable-scrypt],[Build without support for Scrypt (default disabled)])],
+	[AC_HELP_STRING([--enable-scrypt],[Build with support for Scrypt (default disabled)])],
 	[scrypt=$enableval]
 	)
 if test "x$scrypt" = xyes; then
@@ -165,7 +165,7 @@ fi
 sha256d="no"
 
 AC_ARG_ENABLE([sha256d],
-	[AC_HELP_STRING([--disable-sha256d],[Build without support for SHA-256d (default disabled)])],
+	[AC_HELP_STRING([--enable-sha256d],[Build with support for SHA-256d (default disabled)])],
 	[sha256d=$enableval]
 	)
 if test "x$sha256d" = xyes; then

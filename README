@@ -55,10 +55,13 @@ Optional Dependencies:
 
 
 NSGminer specific configuration options:
-	--disable-scrypt        Build without support for Scrypt (default enabled)
-	--enable-cpumining      Build with support for CPU mining (default disabled)
-	--disable-opencl        Build without support for OpenCL (default enabled)
-	--disable-adl           Build with no ADL GPU monitoring (default enabled)
+        --disable-neoscrypt     Build without support for NeoScrypt (default enabled)
+        --enable-scrypt         Build with support for Scrypt (default disabled)
+        --enable-sha256d        Build with support for SHA-256d (default disabled)
+        --enable-cpumining      Build with support for CPU mining (default disabled)
+        --disable-opencl        Build without support for OpenCL (default enabled)
+        --disable-adl           Build with no ADL GPU monitoring (default enabled)
+        --disable-nvml          Build with no NVML GPU monitoring (default enabled)
 	--enable-bitforce       Add support for BitForce FPGAs (default disabled)
 	--enable-icarus         Add support for Icarus FPGAs (default disabled)
 	--enable-modminer       Add support for ModMiner FPGAs (default disabled)
@@ -113,49 +116,85 @@ path like this (if you are in the nsgminer directory already): ./nsgminer
 
 Usage instructions:  Run "nsgminer --help" to see options:
 
-Usage: . [-atDdGCgIKklmpPQqrRsTouvwOchnV] 
+Usage: nsgminer [-atDdGCEgIKklmpxPQqsTouvwOchnV]
 Options for both config file and command line:
---api-allow         Allow API access (if enabled) only to the given list of [W:]IP[/Prefix] address[/subnets]
-                    This overrides --api-network and you must specify 127.0.0.1 if it is required
-                    W: in front of the IP address gives that address privileged access to all api commands
---api-description   Description placed in the API status header (default: NSGminer version)
---api-groups        API one letter groups G:cmd:cmd[,P:cmd:*...]
-                    See API-README for usage
---api-listen        Listen for API requests (default: disabled)
-                    By default any command that does not just display data returns access denied
-                    See --api-allow to overcome this
---api-network       Allow API (if enabled) to listen on/for any address (default: only 127.0.0.1)
---api-port          Port number of miner API (default: 4028)
+--neoscrypt         Use the NeoScrypt algorithm for mining
+--scrypt            Use the Scrypt algorithm for mining
+--lookup-gap <arg>  Specify GPU look-up gap (Scrypt only), comma separated
+--shaders <arg>     Specify GPU shaders per card (Scrypt only), comma separated
+--thread-concurrency <arg> Specify GPU thread concurrency per card (Scrypt only), comma separated
+--sha256d           Use the SHA-256d algorithm for mining
+--algo|-a <arg>     Specify sha256 implementation for CPU mining:
+	auto		Benchmark at startup and pick fastest algorithm
+	c		Linux kernel sha256, implemented in C
+	4way		tcatm's 4-way SSE2 implementation
+	via		VIA padlock implementation
+	cryptopp	Crypto++ C/C++ implementation
+	sse2_64		SSE2 64 bit implementation for x86_64 machines (default: sse2_64)
+--api-allow <arg>   Allow API access only to the given list of [G:]IP[/Prefix] addresses[/subnets]
+--api-description <arg> Description placed in the API status header, default: miner version
+--api-groups <arg>  API one letter groups G:cmd:cmd[,P:cmd:*...] defining the cmds a groups can use
+--api-listen        Enable API, default: disabled
+--api-network       Allow API (if enabled) to listen on/for any address, default: only 127.0.0.1
+--api-port <arg>    Port number of miner API (default: 4028)
+--auto-fan          Automatically adjust all GPU fan speeds to maintain a target temperature
+--auto-gpu          Automatically adjust all GPU engine clock speeds to maintain a target temperature
 --balance           Change multipool strategy from failover to even share balance
---benchmark         Run NSGminer in benchmark mode - produces no shares
+--benchmark         Run the miner in benchmark mode - produces no shares
 --coinbase-addr <arg> Set coinbase payout address for solo mining
 --coinbase-sig <arg> Set coinbase signature when possible
 --compact           Use compact display without per device statistics
+--cpu-threads|-t <arg> Number of miner CPU threads (default: -1)
 --debug|-D          Enable debug output
 --debuglog          Enable debug logging
 --device|-d <arg>   Select device to use, (Use repeat -d for multiple devices, default: all)
+--disable-gpu|-G    Disable GPU mining even if suitable devices exist
 --disable-rejecting Automatically disable pools that continually reject shares
+--enable-cpu|-C     Enable CPU mining with other mining (default: no CPU mining if other devices exist)
 --expiry|-E <arg>   Upper bound on how many seconds after getting work we consider a share from it stale (w/o longpoll active) (default: 120)
 --expiry-lp <arg>   Upper bound on how many seconds after getting work we consider a share from it stale (with longpoll active) (default: 3600)
 --failover-only     Don't leak work to backup pools when primary pool is lagging
---force-dev-init    Always initialize devices when possible (such as bitstream uploads to some FPGAs)
+--gpu-dyninterval <arg> Set the refresh interval in ms for GPUs using dynamic intensity (default: 7)
+--gpu-platform <arg> Select OpenCL platform ID to use for GPU mining (default: -1)
+--gpu-threads|-g <arg> Number of threads per GPU (1 - 10) (default: 1)
+--gpu-map <arg>     Map OpenCL to ADL or NVML device order manually, paired CSV (e.g. 1:0,2:1 maps OpenCL 1 to ADL 0, 2 to 1)
+--gpu-engine <arg>  GPU engine (over)clock range in MHz - one value, range and/or comma separated list (e.g. 850-900,900,750-850)
+--gpu-fan <arg>     GPU fan percentage range - one value, range and/or comma separated list (e.g. 0-85,85,65)
+--gpu-memclock <arg> Set the GPU memory (over)clock in MHz - one value for all or separate by commas for per card
+--gpu-memdiff <arg> Set a fixed difference in clock speed between the GPU and memory in auto-gpu mode
+--gpu-powertune <arg> Set the GPU powertune percentage - one value for all or separate by commas for per card
+--gpu-reorder       Attempt to reorder GPU devices according to PCI Bus ID
+--gpu-vddc <arg>    Set the GPU voltage in Volts - one value for all or separate by commas for per card
+--intensity|-I <arg> Intensity of GPU scanning (d or fixed number within range; default: d to maintain desktop interactivity)
 --kernel-path|-K <arg> Specify a path to where bitstream and kernel files are (default: "/usr/local/bin")
+--kernel|-k <arg>   Specify an OpenCL kernel to use, one value or comma separated
+	neoscrypt	generic NeoScrypt kernel
+	neoscrypt_vliw	NeoScrypt AMD VLIW kernel
+	neoscrypt_vliwp	NeoScrypt AMD VLIW kernel (parallel)
+	scrypt		generic Scrypt kernel
+	diablo		SHA-256d kernel by Diablo3D
+	diakgcn		SHA-256d kernel by Diapolo for AMD GCN
+	phatk		SHA-256d kernel by Phateus
+	poclbm		SHA-256d kernel of the Python OpenCL Bitcoin Miner
 --load-balance      Change multipool strategy from failover to efficiency based balance
 --log|-l <arg>      Interval in seconds between log output (default: 5)
 --log-show-date     Show date on every log line in addition to time
 --monitor|-m <arg>  Use custom pipe cmd for output messages
 --net-delay         Impose small delays in networking to not overload slow routers
+--no-adl            Disable the AMD Display Library used for monitoring and setting GPU parameters
+--no-nvml           Disable the NVIDIA Managment Library used for monitoring GPU parameters
 --no-gbt            Disable getblocktemplate support
 --no-getwork        Disable getwork support
 --no-longpoll       Disable X-Long-Polling support
 --no-restart        Do not attempt to restart devices that hang
 --no-stratum        Disable Stratum detection
 --no-submit-stale   Don't submit shares if they are detected as stale
---pass|-p <arg>     Password for bitcoin JSON-RPC server
+--pass|-p <arg>     Password for a JSON-RPC server
 --per-device-stats  Force verbose mode and output per-device statistics
---pool-proxy|-x     Proxy URI to use for connecting to just the previous-defined pool
+--pool-priority <arg> Priority for just the previous-defined pool
+--pool-proxy|-x <arg> Proxy URI to use for connecting to just the previous-defined pool
 --protocol-dump|-P  Verbose dump of protocol-level activities
---queue|-Q <arg>    Minimum number of work items to have queued (0 - 10) (default: 1)
+--queue|-Q <arg>    Minimum number of work items to have queued (0+) (default: 1)
 --quiet|-q          Disable logging output, display status and errors
 --real-quiet        Disable all output
 --remove-disabled   Remove disabled devices entirely, as if they didn't exist
@@ -165,60 +204,31 @@ Options for both config file and command line:
 --scan-time|-s <arg> Upper bound on time spent scanning current work, in seconds (default: 60)
 --sched-start <arg> Set a time of day in HH:MM to start mining (a once off without a stop time)
 --sched-stop <arg>  Set a time of day in HH:MM to stop mining (will quit without a start time)
---scrypt            Use the scrypt algorithm for mining (non-bitcoin)
+--shaders <arg>     Specify GPU shaders per card (Scrypt only), comma separated
 --sharelog <arg>    Append share log to file
 --shares <arg>      Quit after mining N shares (default: unlimited)
 --skip-security-checks <arg> Skip security checks sometimes to save bandwidth; only check 1/<arg>th of the time (default: never skip)
---socks-proxy <arg> Set socks4 proxy (host:port) for all pools without a proxy specified
+--socks-proxy <arg> Set socks4 proxy (host:port)
 --submit-threads    Minimum number of concurrent share submissions (default: 64)
 --syslog            Use system log for output messages (default: standard error)
 --temp-cutoff <arg> Maximum temperature devices will be allowed to reach before being disabled, one value or comma separated list
 --temp-hysteresis <arg> Set how much the temperature can fluctuate outside limits when automanaging speeds (default: 3)
---temp-target <arg> Target temperature when automatically managing fan and clock speeds
+--temp-overheat <arg> Overheat temperature when automatically managing fan and GPU speeds, one value or comma separated list (default: 85)
+--temp-target <arg> Target temperature when automatically managing fan and clock speeds, one value or comma separated list
 --text-only|-T      Disable ncurses formatted screen output
---url|-o <arg>      URL for bitcoin JSON-RPC server
---user|-u <arg>     Username for bitcoin JSON-RPC server
+--url|-o <arg>      URL for a JSON-RPC server
+--user|-u <arg>     Username for a JSON-RPC server
+--vectors|-v <arg>  Override detected optimal vector (1, 2 or 4) - one value or comma separated list
 --verbose           Log verbose output to stderr as well as status output
---userpass|-O <arg> Username:Password pair for bitcoin JSON-RPC server
+--worksize|-w <arg> Override detected optimal worksize - one value or comma separated list
+--userpass|-O <arg> Username:Password pair for a JSON-RPC server
+--worktime          Display extra work time debug information
 Options for command line only:
 --config|-c <arg>   Load a JSON-format configuration file
 See example.conf for an example configuration.
 --help|-h           Print this message
+--ndevs|-n          Display number of detected GPUs, OpenCL platform information, and exit
 --version|-V        Display version and exit
-
-
-GPU only options:
-
---auto-fan          Automatically adjust all GPU fan speeds to maintain a target temperature
---auto-gpu          Automatically adjust all GPU engine clock speeds to maintain a target temperature
---disable-gpu|-G    Disable GPU mining even if suitable devices exist
---gpu-threads|-g <arg> Number of threads per GPU (1 - 10) (default: 2)
---gpu-dyninterval <arg> Set the refresh interval in ms for GPUs using dynamic intensity (default: 7)
---gpu-engine <arg>  GPU engine (over)clock range in MHz - one value, range and/or comma separated list (e.g. 850-900,900,750-850)
---gpu-fan <arg>     GPU fan percentage range - one value, range and/or comma separated list (e.g. 25-85,85,65)
---gpu-map <arg>     Map OpenCL to ADL device order manually, paired CSV (e.g. 1:0,2:1 maps OpenCL 1 to ADL 0, 2 to 1)
---gpu-memclock <arg> Set the GPU memory (over)clock in MHz - one value for all or separate by commas for per card.
---gpu-memdiff <arg> Set a fixed difference in clock speed between the GPU and memory in auto-gpu mode
---gpu-platform <arg> Select OpenCL platform ID to use for GPU mining
---gpu-powertune <arg> Set the GPU powertune percentage - one value for all or separate by commas for per card.
---gpu-reorder       Attempt to reorder GPU devices according to PCI Bus ID
---gpu-vddc <arg>    Set the GPU voltage in Volts - one value for all or separate by commas for per card.
---intensity|-I <arg> Intensity of GPU scanning (d or -10 -> 10, default: d to maintain desktop interactivity)
---kernel|-k <arg>   Override kernel to use (diablo, poclbm, phatk or diakgcn) - one value or comma separated
---ndevs|-n          Enumerate number of detected GPUs and exit
---no-adl            Disable the ATI display library used for monitoring and setting GPU parameters
---no-nvml           Disable the NVIDIA Managment Library used for monitoring GPU parameters
---temp-overheat <arg> Overheat temperature when automatically managing fan and GPU speeds (default: 85)
---vectors|-v <arg>  Override detected optimal vector (1, 2 or 4) - one value or comma separated list
---worksize|-w <arg> Override detected optimal worksize - one value or comma separated list
-
-
-SCRYPT only options:
-
---lookup-gap <arg>  Set GPU lookup gap for scrypt mining, comma separated
---thread-concurrency <arg> Set GPU thread concurrency for scrypt mining, comma separated
-
-See SCRYPT-README for more information regarding (non-bitcoin) scrypt mining.
 
 
 FPGA mining boards (BitForce, Icarus, ModMiner, X6500, ZTEX) only options:
@@ -255,25 +265,6 @@ For example, "icarus:/dev/ttyUSB0" or "bitforce:\\.\COM5"
 or using the short name: "ica:/dev/ttyUSB0" or "bfl:\\.\COM5"
 
 For other FPGA details see the FPGA-README
-
-
-CPU only options (not included in binaries):
-
---algo|-a <arg>     Specify sha256 implementation for CPU mining:
-        auto            Benchmark at startup and pick fastest algorithm
-        c               Linux kernel sha256, implemented in C
-        4way            tcatm's 4-way SSE2 implementation
-        via             VIA padlock implementation
-        cryptopp        Crypto++ C/C++ implementation
-        cryptopp_asm32  Crypto++ 32-bit assembler implementation
-        sse2_32         SSE2 32 bit implementation for i386 machines
-        sse2_64         SSE2 64 bit implementation for x86_64 machines
-        sse4_64         SSE4.1 64 bit implementation for x86_64 machines
-        altivec_4way    Altivec implementation for PowerPC G4 and G5 machines
---cpu-threads|-t <arg> Number of miner CPU threads (default: 4)
---enable-cpu|-C     Enable CPU mining with other mining (default: no CPU mining if other devices exist)
-
-
 
 ---
 

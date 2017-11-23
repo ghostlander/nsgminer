@@ -1,3 +1,8 @@
+NSGminer v0.9.3 - 23rd of November 2017
+- NeoScrypt OpenCL kernels v8;
+- NVML GPU mapping and fan speeds fixed;
+- GetBlockTemplate support fixed
+
 NSGminer v0.9.2 - 20th of February 2016
 - NeoScrypt OpenCL kernel v7;
 - optional use of the NVIDIA Management Library;
