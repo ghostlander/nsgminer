@@ -640,6 +640,9 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
             strcpy(binaryfilename, NEOSCRYPT_KERNNAME);
             /* NeoScrypt only supports vector 1 */
             cgpu->vwidth = 1;
+            /* Limit work group size due to insufficient local memory */
+            if(!cgpu->work_size || (cgpu->work_size > 128))
+              cgpu->work_size = 128;
             break;
         case(KL_NEOSCRYPT_VLIW):
             strcpy(filename, NEOSCRYPT_VLIW_KERNNAME".cl");
@@ -691,13 +694,13 @@ _clState *initCl(unsigned int gpu, char *name, size_t nameSize)
       (clState->vwidth == 1) && clState->hasOpenCL11plus) ||
       opt_neoscrypt || opt_scrypt) clState->goffset = true;
 
-	if (cgpu->work_size && cgpu->work_size <= clState->max_work_size)
-		clState->wsize = cgpu->work_size;
-	else if (strstr(name, "Tahiti"))
-		clState->wsize = 64;
-	else
-		clState->wsize = (clState->max_work_size <= 256 ? clState->max_work_size : 256) / clState->vwidth;
-	cgpu->work_size = clState->wsize;
+    if(cgpu->work_size && (cgpu->work_size <= clState->max_work_size)) {
+        clState->wsize = cgpu->work_size;
+    } else {
+        clState->wsize = ((clState->max_work_size <= 256) ? clState->max_work_size : 256);
+        clState->wsize /= clState->vwidth;
+    }
+    cgpu->work_size = clState->wsize;
 
 #ifdef USE_NEOSCRYPT
     if(opt_neoscrypt) {
