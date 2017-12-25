@@ -28,11 +28,17 @@
 #include <jansson.h>
 #include <curl/curl.h>
 
+#if !defined(uchar)
 typedef unsigned char uchar;
-#if !(uint)
+#endif
+
+#if !defined(uint)
 typedef unsigned int uint;
 #endif
+
+#if !defined(ullong)
 typedef unsigned long long ullong;
+#endif
 
 #include <blkmaker.h>
 #include <blktemplate.h>

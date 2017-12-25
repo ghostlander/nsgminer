@@ -54,6 +54,10 @@
 #include <blkmaker_jansson.h>
 #include <blktemplate.h>
 
+#if defined(USE_NEOSCRYPT) || defined(USE_SCRYPT)
+#include "neoscrypt.h"
+#endif
+
 #include "compat.h"
 #include "miner.h"
 #include "findnonce.h"
@@ -63,10 +67,6 @@
 
 #ifdef HAVE_ADL
 #include "adl.h"
-#endif
-
-#if defined(USE_NEOSCRYPT) || defined(USE_SCRYPT)
-#include "neoscrypt.h"
 #endif
 
 bool opt_neoscrypt = false;
