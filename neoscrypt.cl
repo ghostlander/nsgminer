@@ -27,21 +27,13 @@
 
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20
  * Optimised for modern AMD and NVIDIA GPU architectures
- * v8, 23-Nov-2017 */
+ * v8a, 26-Dec-2017 */
 
 
 #if (cl_amd_media_ops)
 #define AMD 1
 #elif (cl_nv_pragma_unroll)
 #define NVIDIA 1
-/* Available for Fermi and newer, use the macro below for Tesla */
-uint amd_bitalign(uint src0, uint src1, uint src2) {
-    uint dst;
-    asm("shf.r.wrap.b32 %0, %2, %1, %3;" : "=r"(dst) : "r"(src0), "r"(src1), "r"(src2));
-    return(dst);
-}
-#else
-#define amd_bitalign(src0, src1, src2) ((uint)(((((ulong)src0) << 32) | (ulong)src1) >> (src2 & 0x1F)))
 #endif
 
 #if (AMD)
@@ -73,6 +65,7 @@ uint amd_bitalign(uint src0, uint src1, uint src2) {
 #define BLAKE2S_COMPACT 0
 #endif
 
+
 #if (AMD)
 /* memcpy() of 4-byte aligned memory */
 void neoscrypt_copy4(void *restrict dstp, const void *restrict srcp,
@@ -86,6 +79,8 @@ void neoscrypt_copy4(void *restrict dstp, const void *restrict srcp,
     for(i = 0; i < len; i++)
       dst[i] = src[i];
 }
+#else
+#define amd_bitalign(src0, src1, src2) ((uint)(((((ulong)src0) << 32) | (ulong)src1) >> (src2 & 0x1F)))
 #endif
 
 /* 32-byte memcpy() of possibly unaligned private memory to 32-byte aligned
@@ -134,28 +129,9 @@ void neoscrypt_copy64_ulap(uint8 *restrict dstp, const __local void *restrict sr
     dst[15] = amd_bitalign(src[16], src[15], offset);
 }
 
-/* 32-byte XOR of possibly unaligned private memory to 32-byte aligned
- * private memory */
-void neoscrypt_xor32_upap(uint8 *restrict dstp, const void *restrict srcp,
-  uint offset) {
-    uint *dst = (uint *) dstp;
-    uint *src = (uint *) srcp;
-
-    offset = amd_bitalign(offset, offset, 29U);
-
-    dst[0] ^= amd_bitalign(src[1], src[0], offset);
-    dst[1] ^= amd_bitalign(src[2], src[1], offset);
-    dst[2] ^= amd_bitalign(src[3], src[2], offset);
-    dst[3] ^= amd_bitalign(src[4], src[3], offset);
-    dst[4] ^= amd_bitalign(src[5], src[4], offset);
-    dst[5] ^= amd_bitalign(src[6], src[5], offset);
-    dst[6] ^= amd_bitalign(src[7], src[6], offset);
-    dst[7] ^= amd_bitalign(src[8], src[7], offset);
-}
-
-/* 32-byte XOR of possibly unaligned private memory to 32-byte aligned
+/* 32-byte memcpy() of possibly unaligned private memory to 32-byte aligned
  * private memory (iterated) */
-void neoscrypt_xor32_upap_it(uint8 *restrict dstp, const void *restrict srcp,
+void neoscrypt_copy32_upap_it(uint8 *restrict dstp, const void *restrict srcp,
   uint offset, uint it) {
     uint *dst = (uint *) dstp;
     uint *src = (uint *) srcp;
@@ -166,15 +142,22 @@ void neoscrypt_xor32_upap_it(uint8 *restrict dstp, const void *restrict srcp,
     it = amd_bitalign(it, it, 29U);
 
     for(i = 0; i < it; i += 8) {
-        dst[i]     ^= amd_bitalign(src[i + 1], src[i],     offset);
-        dst[i + 1] ^= amd_bitalign(src[i + 2], src[i + 1], offset);
-        dst[i + 2] ^= amd_bitalign(src[i + 3], src[i + 2], offset);
-        dst[i + 3] ^= amd_bitalign(src[i + 4], src[i + 3], offset);
-        dst[i + 4] ^= amd_bitalign(src[i + 5], src[i + 4], offset);
-        dst[i + 5] ^= amd_bitalign(src[i + 6], src[i + 5], offset);
-        dst[i + 6] ^= amd_bitalign(src[i + 7], src[i + 6], offset);
-        dst[i + 7] ^= amd_bitalign(src[i + 8], src[i + 7], offset);
+        dst[i]     = amd_bitalign(src[i + 1], src[i],     offset);
+        dst[i + 1] = amd_bitalign(src[i + 2], src[i + 1], offset);
+        dst[i + 2] = amd_bitalign(src[i + 3], src[i + 2], offset);
+        dst[i + 3] = amd_bitalign(src[i + 4], src[i + 3], offset);
+        dst[i + 4] = amd_bitalign(src[i + 5], src[i + 4], offset);
+        dst[i + 5] = amd_bitalign(src[i + 6], src[i + 5], offset);
+        dst[i + 6] = amd_bitalign(src[i + 7], src[i + 6], offset);
+        dst[i + 7] = amd_bitalign(src[i + 8], src[i + 7], offset);
     }
+}
+
+/* 4-byte XOR of possibly unaligned private memory to 4-byte aligned
+ * private memory */
+void neoscrypt_xor4_upap(uint *restrict dst, const uint *restrict src, uint offset) {
+    offset = amd_bitalign(offset, offset, 29U);
+    dst[0] ^= amd_bitalign(src[1], src[0], offset);
 }
 
 /* 32-byte XOR of 32-byte aligned private memory to possibly unaligned
@@ -227,6 +210,11 @@ void neoscrypt_xor32_apup(void *restrict dstp, const uint8 *restrict srcp,
 #endif
 }
 
+void neoscrypt_copy128_pl(uint16 __local *restrict dst, const uint16 *restrict src) {
+    dst[0] = src[0];
+    dst[1] = src[1];
+}
+
 void neoscrypt_copy256(uint16 *restrict dst, const uint16 *restrict src) {
     dst[0] = src[0];
     dst[1] = src[1];
@@ -273,7 +261,7 @@ static const __constant uint8 blake2s_IV4[1] = {
             0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19)
 };
 
-static const __constant uchar blake2s_sigma[10][16] = {
+static const __constant uint blake2s_sigma[10][16] = {
     {  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15 } ,
     { 14, 10,  4,  8,  9, 15, 13,  6,  1, 12,  0,  2, 11,  7,  5,  3 } ,
     { 11,  8, 12,  0,  5,  2, 15, 13, 10, 14,  3,  6,  7,  1,  9,  4 } ,
@@ -632,10 +620,10 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
     uint i, bufptr, passptr, offset;
 
     /* Password buffer */
-    __local uchar *Aa = (__local uchar *) &Lh[0];
+    __local uint *Ai = (__local uint *) &Lh[0];
     /* Salt buffer */
     uint4 *Bq = (uint4 *) &XZ[0];
-    uchar *Bb = (uchar *) &XZ[0];
+    uint  *Bi = (uint  *) &XZ[0];
     /* BLAKE2s temp buffer */
     uint8 *T = (uint8 *)  &Bq[18];
     uint4 *t = (uint4 *)  &Bq[18];
@@ -650,7 +638,7 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
         uint16 S;
 
         offset = bufptr & 0x03;
-        neoscrypt_copy32_upap(&M[0], &Bb[bufptr - offset], offset);
+        neoscrypt_copy32_upap(&M[0], &Bi[bufptr >> 2], offset);
 
         M[1] = (uint8)(0, 0, 0, 0, 0, 0, 0, 0);
 
@@ -690,9 +678,8 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
             S.sc ^= 128U;
             S.se ^= 0xFFFFFFFFU;
 
-            if(bufptr < 80U) passptr = bufptr;
-            else passptr = bufptr - 80U;
-            neoscrypt_copy64_ulap(&M[0], &Aa[passptr - offset], offset);
+            passptr = bufptr - 80U;
+            neoscrypt_copy64_ulap(&M[0], &Ai[min(passptr, bufptr) >> 2], offset);
 
         }
 
@@ -722,9 +709,8 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
         S.sc ^= 128U;
         S.se ^= 0xFFFFFFFFU;
 
-        if(bufptr < 80U) passptr = bufptr;
-        else passptr = bufptr - 80U;
-        neoscrypt_copy64_ulap(&M[0], &Aa[passptr - offset], offset);
+        passptr = bufptr - 80U;
+        neoscrypt_copy64_ulap(&M[0], &Ai[min(passptr, bufptr) >> 2], offset);
 
 #pragma unroll
         for(uint j = 0; j < 10; j++) {
@@ -804,18 +790,18 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
 
         /* Modify the salt buffer */
         offset = bufptr & 0x03;
-        neoscrypt_xor32_apup(&Bb[bufptr - offset], &T[0], offset);
+        neoscrypt_xor32_apup(&Bi[bufptr >> 2], &T[0], offset);
 
 #if (AMD)
         /* Head modified, 4-byte aligned copy to tail */
         if(bufptr < 32U) {
-            neoscrypt_copy4(&Bb[256 + bufptr - offset], &Bb[bufptr - offset], 32U - bufptr + offset);
+            neoscrypt_copy4(&Bi[(256 + bufptr) >> 2], &Bi[bufptr >> 2], 32U - bufptr + offset);
             continue;
         }
 
         /* Tail modified, 4-byte aligned copy to head */
         if(bufptr > 224U) {
-            neoscrypt_copy4(&Bb[0], &Bb[256], bufptr - 224U + (4U - offset));
+            neoscrypt_copy4(&Bi[0], &Bi[64], bufptr - 224U + (4U - offset));
         }
 #else
         /* Head modified, full copy to tail */
@@ -837,46 +823,10 @@ uint neoscrypt_fastkdf_update(uint16 *XZ, __local uint16 *Lh) {
     return(bufptr);
 }
 
-/* FastKDF finish, mode 0 (stretching) */
-void neoscrypt_fastkdf_finish0(uint16 *XZ, uint16 *Y, __local uint16 *Lh,
-  uint bufptr) {
-    uint8 *Yo = (uint8 *) &Y[0];
-    uint4 *Yq = (uint4 *) &Y[0];
-    uchar *Bb = (uchar *) &XZ[0];
-
-    Y[0] = Lh[0];
-    Y[1] = Lh[1];
-    Yq[13] = Yq[8]  = Yq[3];
-    Yq[14] = Yq[9]  = Yq[4];
-    Yq[15] = Yq[10] = Yq[5];
-    Yq[11] = Yq[6];
-    Yq[12] = Yq[7];
-
-    uint offset = bufptr & 0x03;
-    uint i = (256 - bufptr + 31) >> 5;
-
-    neoscrypt_xor32_upap_it(&Yo[0], &Bb[bufptr - offset], offset, i);
-    neoscrypt_xor32_upap_it(&Yo[i], &Bb[(bufptr & 0x1FU) - offset], offset, 8U - i);
-}
-
-/* FastKDF finish, mode 1 (compressing) */
-void neoscrypt_fastkdf_finish1(uint16 *XZ, uint16 *Y, __local uint16 *Lh,
-  uint bufptr) {
-    uint8 *Yo = (uint8 *) &Y[0];
-    __local uint8 *Lo = (__local uint8 *) &Lh[0];
-    uchar *Bb = (uchar *) &XZ[0];
-
-    Yo[0] = Lo[0];
-
-    uint offset = bufptr & 0x03;
-
-    neoscrypt_xor32_upap(&Yo[0], &Bb[bufptr - offset], offset);
-}
-
 __attribute__((reqd_work_group_size(WORKSIZE, 1, 1)))
 __kernel void search(__global const uint4 *restrict input, __global uint *restrict output,
-  __global ulong16 *globalcache, const uint target) {
-    uint i, j, k, bufptr;
+  __global ulong16 *restrict globalcache, const uint target) {
+    uint i, j, k, bufptr, result;
 
     uint glbid = get_global_id(0);
     uint grpid = get_group_id(0);
@@ -886,11 +836,14 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
     __local uint16 L[WORKSIZE << 2];
     __local uint16 *Lh = (__local uint16 *) &L[lclid << 2];
 
-    uint16 XZ[5];  
+    uint16 XZ[5];
     uint4 *XZq = (uint4 *) &XZ[0];
+    uint  *XZi = (uint *)  &XZ[0];
 
     uint16 Y[4];
-    uint *Yi = (uint *) &Y[0];
+    uint8 *Yo = (uint8 *) &Y[0];
+
+    result = input[1].w;
 
     /* 1st FastKDF buffer initialisation */
     const uint4 mod = (uint4)(input[4].x, input[4].y, input[4].z, glbid);
@@ -902,8 +855,7 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
     XZq[16] = XZq[0];
     XZq[17] = XZq[1];
 
-    Lh[0] = (uint16)(input[0], input[1], input[2], input[3]);
-    Lh[1] = (uint16)(mod, input[0], input[1], input[2]);
+    neoscrypt_copy128_pl(&Lh[0], &XZ[0]);
     Lh[2] = (uint16)(input[3], mod, input[0], input[0]);
     Lh[3] = (uint16)(input[1], input[2], input[3], mod);
 
@@ -919,10 +871,18 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
         bufptr = neoscrypt_fastkdf_update(XZ, Lh);
 #endif
 
-        neoscrypt_fastkdf_finish0(XZ, Y, Lh, bufptr);
+        /* FastKDF finish, mode 0 (stretching) */
+        uint it = (256 - bufptr + 31) >> 5;
+        neoscrypt_copy32_upap_it(&Yo[0], &XZi[bufptr >> 2], bufptr & 0x03, it);
+        neoscrypt_copy32_upap_it(&Yo[it], &XZi[(bufptr & 0x1FU) >> 2], bufptr & 0x03, 8U - it);
 
-        /* blkcpy(X/Z, Y) */
-        neoscrypt_copy256(&XZ[0], &Y[0]);
+        XZ[0] = Y[0] ^ Lh[0];
+        XZ[1] = Y[1] ^ Lh[1];
+        XZ[2] = Y[2] ^ (uint16)(input[3], mod, input[0], input[1]);
+        XZ[3] = Y[3] ^ (uint16)(input[2], input[3], mod, input[0]);
+
+        /* blkcpy(Y, X/Z) */
+        neoscrypt_copy256(&Y[0], &XZ[0]);
 
         /* X = SMix(X) and Z = SMix(Z) */
         for(i = 0; i < 2; i++) {
@@ -1013,7 +973,8 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
     bufptr = neoscrypt_fastkdf_update(XZ, Lh);
 #endif
 
-    neoscrypt_fastkdf_finish1(XZ, Y, Lh, bufptr);
+    /* FastKDF finish, mode 1 (compressing); most significant uint only */
+    neoscrypt_xor4_upap(&result, &XZi[(bufptr >> 2) + 7], bufptr & 0x03);
 
 #define NEOSCRYPT_FOUND (0xFF)
 #ifdef cl_khr_global_int32_base_atomics
@@ -1022,7 +983,7 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
     #define SETFOUND(nonce) output[output[NEOSCRYPT_FOUND]++] = nonce
 #endif
 
-    if(Yi[7] <= target) SETFOUND(glbid);
+    if(result <= target) SETFOUND(glbid);
 
     return;
 }
