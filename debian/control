@@ -2,7 +2,7 @@ Source: nsgminer
 Priority: optional
 Section: misc
 Maintainer: John Doering <ghostlander@phoenixcoin.org>
-Standards-Version: 0.9.3
+Standards-Version: 0.9.4
 Build-Depends: build-essential, debhelper, autoconf, automake, libtool, libssl-dev, pkg-config, libcurl4-openssl-dev, wget, unzip, libncurses5-dev, git, quilt
 
 Package: nsgminer
