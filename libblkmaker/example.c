@@ -9,7 +9,11 @@
 #include <inttypes.h>
 #include <stdint.h>
 
+#ifndef WIN32
 #include <arpa/inet.h>
+#else
+#include <winsock2.h>
+#endif
 
 #include <gcrypt.h>
 #include <libbase58.h>
@@ -92,8 +96,9 @@ int main(int argc, char**argv) {
 		fprintf(stderr, "Error adding block template: %s", err);
 		assert(0 && "Error adding block template");
 	}
-	while (blkmk_time_left(tmpl, time(NULL)) && blkmk_work_left(tmpl))
-	{
+
+    unsigned int hash_found = 0;
+    while(blkmk_time_left(tmpl, time(NULL)) && blkmk_work_left(tmpl) && !hash_found) {
 		unsigned char data[80], hash[32];
 		size_t datasz;
 		unsigned int dataid;
@@ -105,26 +110,36 @@ int main(int argc, char**argv) {
 		// mine the right nonce
 		// this is iterating in native order, even though SHA256 is big endian, because we don't implement noncerange
 		// however, the nonce is always interpreted as big endian, so we need to convert it as if it were big endian
-		for (nonce = 0; nonce < 0xffffffff; ++nonce)
-		{
-			*(uint32_t*)(&data[76]) = nonce;
-			assert(my_sha256(hash, data, 80));
-			assert(my_sha256(hash, hash, 32));
-			if (!*(uint32_t*)(&hash[28]))
-				break;
-			if (!(nonce % 0x1000))
-			{
-				printf("0x%8" PRIx32 " hashes done...\r", nonce);
-				fflush(stdout);
-			}
-		}
-		printf("Found nonce: 0x%8" PRIx32 " \n", nonce);
-		nonce = ntohl(nonce);
-		
-		req = blkmk_submit_jansson(tmpl, data, dataid, nonce);
-		assert(req);
-		// send req to server
-		send_json(req);
+        for(nonce = 0; nonce < 0xFFFFFFFF; nonce++) {
+            *((unsigned int *) &data[76]) = nonce;
+
+            my_sha256(hash, data, 80);
+            my_sha256(hash, hash, 32);
+
+            if(!*((unsigned int *) &hash[28])) {
+                hash_found = 1;
+                printf("\nFound hash : 0x");
+                unsigned int i;
+                for(i = 0; i < 32; i++)
+                  printf("%02X", hash[i]);
+                printf("\n");
+                printf("Found nonce: 0x%08X\n", nonce);
+                nonce = ntohl(nonce);
+                req = blkmk_submit_jansson(tmpl, data, dataid, nonce);
+                // send req to server
+                if(req) send_json(req);
+                break;
+            }
+
+            if(!(nonce % 0x100)) {
+                printf("0x%08X hashes done...\r", nonce);
+                fflush(stdout);
+            }
+
+        }
+
 	}
 	blktmpl_free(tmpl);
+
+    return(0);
 }
