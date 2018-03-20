@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 Luke Dashjr
+ * Copyright 2012-2016 Luke Dashjr
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the standard MIT license.  See COPYING for more details.
@@ -24,20 +24,26 @@ typedef uint32_t blktime_t;
 typedef int16_t blktime_diff_t;
 typedef uint32_t blknonce_t;
 
+#define libblkmaker_blkheader_size (80)
+#define libblkmaker_coinbase_size_minimum (4)
+#define libblkmaker_coinbase_size_limit (100)
+
 struct blktxn_t {
 	unsigned char *data;
 	size_t datasz;
 	// NOTE: The byte order of hash is backward; use hash_ instead
 	txnhash_t *hash;
 	
-	signed long dependcount;
+	signed long dependscount;
 	unsigned long *depends;
 	
-	uint64_t fee;
+	int64_t fee_;
 	bool required;
-	int16_t sigops;
+	int16_t sigops_;
+	int32_t weight;
 	
 	txnhash_t *hash_;
+	txnhash_t *txid;
 };
 
 struct blkaux_t {
@@ -85,10 +91,16 @@ typedef enum {
 
 extern const char *blktmpl_capabilityname(gbt_capabilities_t);
 #define BLKTMPL_LONGEST_CAPABILITY_NAME  (16)
-extern gbt_capabilities_t blktmpl_getcapability(const char *);
+// NOTE: blktmpl_getcapability("time") yields a combination of gbt_capabilities_t
+extern uint32_t blktmpl_getcapability(const char *);
 
 
 typedef gbt_capabilities_t blkmutations_t;
+
+struct blktmpl_vbassoc {
+	char *name;
+	uint8_t bitnum;
+};
 
 // WARNING: Do not allocate this (ABI is not guaranteed to remain fixed-size)
 typedef struct {
@@ -124,8 +136,6 @@ typedef struct {
 	blktime_diff_t maxtimeoff;
 	blktime_t mintime;
 	blktime_diff_t mintimeoff;
-	blknonce_t minnonce;
-	blknonce_t maxnonce;
 	
 	// TEMPORARY HACK
 	libblkmaker_hash_t *_mrklbranch;
@@ -134,7 +144,26 @@ typedef struct {
 	
 	unsigned aux_count;
 	struct blkaux_t *auxs;
+	
+	unsigned long txns_datasz;
+	signed long txns_sigops;
+	
+	char **rules;
+	bool unsupported_rule;
+	struct blktmpl_vbassoc **vbavailable;
+	uint32_t vbrequired;
+	
+	bool _bip141_sigops;
+	bool _calculated_witness;
+	libblkmaker_hash_t *_witnessmrklroot;
+	int64_t weightlimit;
+	int64_t txns_weight;
+	
+	bool has_cbvalue;
 } blktemplate_t;
+
+extern void blktxn_init(struct blktxn_t *);
+extern void blktxn_clean(struct blktxn_t *);
 
 extern blktemplate_t *blktmpl_create();
 extern uint32_t blktmpl_addcaps(const blktemplate_t *);

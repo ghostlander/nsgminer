@@ -46,8 +46,27 @@ pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = \
 	libblkmaker_jansson-$(LIBBLKMAKER_API_VERSION).pc
 
-dist_noinst_SCRIPTS = autogen.sh
+dist_noinst_SCRIPTS = autogen.sh test.sh
 dist_noinst_DATA = \
 	AUTHORS COPYING README \
 	example.c \
 	testinput.c
+	
+if HAVE_LIBGCRYPT
+check_PROGRAMS = test
+test_SOURCES = test.c
+test_CFLAGS = -I../libbase58 -I../libjansson $(LIBGCRYPT_CFLAGS)
+test_LDADD = -L../libbase58 -lbase58 -L../libjansson -ljansson $(LIBGCRYPT_LIBS) \
+	libblkmaker-@LIBBLKMAKER_API_VERSION@.la libblkmaker_jansson-@LIBBLKMAKER_API_VERSION@.la
+TESTS = test.sh
+
+EXTRA_PROGRAMS = example
+example_SOURCES = example.c
+example_CFLAGS = -I../libbase58 -I../libjansson $(LIBGCRYPT_CFLAGS)
+example_LDADD = -L../libbase58 -lbase58 -L../libjansson -ljansson  $(LIBGCRYPT_LIBS) \
+	libblkmaker-@LIBBLKMAKER_API_VERSION@.la libblkmaker_jansson-@LIBBLKMAKER_API_VERSION@.la
+else
+example:
+	@echo "libgcrypt is required to build the example, but was not found"
+.PHONY: example
+endif

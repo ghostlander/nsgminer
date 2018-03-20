@@ -1,12 +1,15 @@
 /*
- * Copyright 2012-2014 Luke Dashjr
+ * Copyright 2012-2016 Luke Dashjr
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the standard MIT license.  See COPYING for more details.
  */
 
 #define _BSD_SOURCE
+#define _DEFAULT_SOURCE
 
+#include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -21,7 +24,7 @@
 #	error "Jansson 2.0 with long long support required!"
 #endif
 
-json_t *blktmpl_request_jansson(const uint32_t caps, const char * const lpid) {
+json_t *blktmpl_request_jansson2(const uint32_t caps, const char * const lpid, const char * const * const rulelist) {
 	json_t *req, *jcaps, *jstr, *reqf, *reqa;
 	if (!(req = json_object()))
 		return NULL;
@@ -60,6 +63,26 @@ json_t *blktmpl_request_jansson(const uint32_t caps, const char * const lpid) {
 		if (json_object_set_new(req, "longpollid", jstr))
 			goto err;
 	}
+	jstr = NULL;
+	
+	// Add rules list
+	if (!(jcaps = json_array())) {
+		goto err;
+	}
+	for (const char * const *currule = rulelist; *currule; ++currule) {
+		if (!(jstr = json_string(*currule))) {
+			goto err;
+		}
+		if (json_array_append_new(jcaps, jstr)) {
+			goto err;
+		}
+	}
+	jstr = NULL;
+	if (json_object_set_new(req, "rules", jcaps))
+		goto err;
+	jcaps = NULL;
+	
+	// Put together main JSON-RPC request Object
 	if (!(jstr = json_string("getblocktemplate")))
 		goto err;
 	if (json_object_set_new(reqf, "method", jstr))
@@ -82,6 +105,10 @@ err:
 	return NULL;
 }
 
+json_t *blktmpl_request_jansson(const uint32_t caps, const char * const lpid) {
+	return blktmpl_request_jansson2(caps, lpid, blkmk_supported_rules);
+}
+
 
 #define my_hex2bin _blkmk_hex2bin
 
@@ -98,17 +125,49 @@ err:
 		return "Error decoding '" #key "'";                                 \
 } while(0)
 
-#define GETNUM(key)  do {  \
+#define GETNUM(key, type)  do {  \
 	GET(key, number);                       \
-	tmpl->key = json_integer_value(v);      \
+	const double tmpd = json_number_value(v);  \
+	const type tmp = tmpd;  \
+	if (tmpd != tmp) {  \
+		return "Invalid number value for '" #key "'";  \
+	}  \
+	tmpl->key = tmp;  \
 } while(0)
 
-#define GETNUM_O2(key, skey)  do {  \
-	if ((v = json_object_get(json, #skey)) && json_is_number(v))  \
-		tmpl->key = json_integer_value(v);  \
+#define GETNUM_T(key, type)  do {  \
+	GET(key, number);                       \
+	const double tmpd = json_number_value(v);  \
+	const type tmp = tmpd;  \
+	/* This checks if it's merely being truncated, and tolerates it */ \
+	if (tmpd != tmp && !((tmpd < 0) ? (tmpd < tmp && tmpd + 1 > tmp) : (tmpd > tmp && tmpd - 1 < tmp))) {  \
+		return "Invalid number value for '" #key "'";  \
+	}  \
+	tmpl->key = tmp;  \
 } while(0)
 
-#define GETNUM_O(key)  GETNUM_O2(key, key)
+#define GETNUM_O2(key, skey, type)  do {  \
+	if ((v = json_object_get(json, #skey)) && json_is_number(v)) {  \
+		const double tmpd = json_number_value(v);  \
+		const type tmp = tmpd;  \
+		if (tmpd == tmp) {  \
+			tmpl->key = tmp;  \
+		}  \
+	}  \
+} while(0)
+
+#define GETNUM_O(key, type)  GETNUM_O2(key, key, type)
+
+#define GETNUM_OT(key, type)  do {  \
+	if ((v = json_object_get(json, #key)) && json_is_number(v)) {  \
+		const double tmpd = json_number_value(v);  \
+		const type tmp = tmpd;  \
+		/* This checks if it's merely being truncated, and tolerates it */ \
+		if (tmpd == tmp || ((tmpd < 0) ? (tmpd < tmp && tmpd + 1 > tmp) : (tmpd > tmp && tmpd - 1 < tmp))) {  \
+			tmpl->key = tmp;  \
+		}  \
+	}  \
+} while(0)
 
 #define GETSTR(key, skey)  do {  \
 	if ((v = json_object_get(json, #key)) && json_is_string(v))  \
@@ -127,8 +186,10 @@ err:
 static void my_flip(void *, size_t);
 
 static
-const char *parse_txn(struct blktxn_t *txn, json_t *txnj) {
+const char *parse_txn(struct blktxn_t *txn, json_t *txnj, size_t my_tx_index) {
 	json_t *vv;
+	
+	blktxn_init(txn);
 	
 	if (!((vv = json_object_get(txnj, "data")) && json_is_string(vv)))
 		return "Missing or invalid type for transaction data";
@@ -152,7 +213,80 @@ const char *parse_txn(struct blktxn_t *txn, json_t *txnj) {
 			my_flip(*txn->hash_, sizeof(*txn->hash_));
 	}
 	
-	// TODO: dependcount/depends, fee, required, sigops
+	if ((vv = json_object_get(txnj, "txid")) && json_is_string(vv)) {
+		hexdata = json_string_value(vv);
+		txn->txid = malloc(sizeof(*txn->txid));
+		if (!my_hex2bin(*txn->txid, hexdata, sizeof(*txn->txid))) {
+			return "Error decoding txid field";
+		} else {
+			my_flip(*txn->txid, sizeof(*txn->txid));
+		}
+	}
+	
+	txn->weight = -1;
+	if ((vv = json_object_get(txnj, "weight")) && json_is_number(vv)) {
+		const double f = json_number_value(txnj);
+		const int32_t i32 = f;
+		if (f == i32) {
+			txn->weight = i32;
+		}
+	}
+	
+	if ((vv = json_object_get(txnj, "depends")) && json_is_array(vv)) {
+		size_t depcount = json_array_size(vv);
+		if (depcount <= LONG_MAX) {
+			json_t *v;
+			long i;
+			double f;
+			unsigned long ul;
+			
+			txn->depends = malloc(sizeof(*txn->depends) * depcount);
+			for (i = 0; i < depcount; ++i) {
+				v = json_array_get(vv, i);
+				if (!json_is_number(v)) {
+					break;
+				}
+				f = json_number_value(v);
+				ul = f;
+				if (f != ul || ul >= my_tx_index) {
+					// Out of range for storage type, fractional number, forward dependency, etc
+					break;
+				}
+				txn->depends[i] = ul;
+			}
+			if (i != depcount) {
+				// We failed somewhere
+				free(txn->depends);
+				txn->depends = NULL;
+			} else {
+				// Success, finish up with storing the count
+				txn->dependscount = depcount;
+			}
+		}
+	}
+	
+	if ((vv = json_object_get(txnj, "fee")) && json_is_number(vv)) {
+		double f;
+		int64_t i64;
+		
+		f = json_number_value(vv);
+		i64 = f;
+		if (i64 == f && i64 >= 0) {
+			txn->fee_ = i64;
+		}
+	}
+	
+	if ((vv = json_object_get(txnj, "required")) && json_is_true(vv)) {
+		txn->required = true;
+	}
+	
+	if ((vv = json_object_get(txnj, "sigops")) && json_is_number(vv)) {
+		const double f = json_number_value(vv);
+		int16_t i16 = f;
+		if (i16 == f && i16 >= 0) {
+			txn->sigops_ = i16;
+		}
+	}
 	
 	return NULL;
 }
@@ -188,23 +322,116 @@ const char *blktmpl_add_jansson(blktemplate_t *tmpl, const json_t *json, time_t 
 	
 	GETHEX(bits, diffbits);
 	my_flip(tmpl->diffbits, 4);
-	GETNUM(curtime);
-	GETNUM(height);
+	GETNUM_T(curtime, blktime_t);
+	GETNUM(height, blkheight_t);
 	GETHEX(previousblockhash, prevblk);
 	my_flip(tmpl->prevblk, 32);
-	GETNUM_O(sigoplimit);
-	GETNUM_O(sizelimit);
-	GETNUM(version);
+	GETNUM_O(sigoplimit, unsigned short);
+	GETNUM_O(sizelimit, unsigned long);
+	GETNUM_O(weightlimit, int64_t);
+	GETNUM(version, uint32_t);
 	
-	GETNUM_O2(cbvalue, coinbasevalue);
+	if ((v = json_object_get(json, "mutable")) && json_is_array(v))
+	{
+		for (size_t i = json_array_size(v); i--; )
+		{
+			v2 = json_array_get(v, i);
+			if (!json_is_string(v2))
+				continue;
+			tmpl->mutations |= blktmpl_getcapability(json_string_value(v2));
+		}
+	}
+	
+	if ((tmpl->version & 0xe0000000) == 0x20000000 && (v = json_object_get(json, "vbavailable")) && json_is_object(v) && (v = json_object_get(json, "rules")) && json_is_array(v)) {
+		// calloc so that a failure doesn't result in freeing a random pointer
+		size_t n = json_array_size(v);
+		tmpl->rules = calloc(n + 1, sizeof(*tmpl->rules));
+		for (size_t i = 0; i < n; ++i) {
+			v2 = json_array_get(v, i);
+			if (!json_is_string(v2)) {
+				return "Non-String data in template rules list";
+			}
+			s = json_string_value(v2);
+			if (s[0] == '!') {
+				++s;
+				if (!blkmk_supports_rule(s)) {
+					return "Unsupported rule strictly required by template";
+				}
+			} else {
+				if (!blkmk_supports_rule(s)) {
+					tmpl->unsupported_rule = true;
+				}
+			}
+			tmpl->rules[i] = strdup(s);
+			if (!tmpl->rules[i]) {
+				return "Memory allocation error parsing rules";
+			}
+			if (!strcmp(s, "segwit")) {
+				tmpl->_bip141_sigops = true;
+			}
+		}
+		
+		v = json_object_get(json, "vbavailable");
+		n = json_object_size(v);
+		tmpl->vbavailable = calloc(n + 1, sizeof(*tmpl->vbavailable));
+		struct blktmpl_vbassoc **cur_vbassoc = tmpl->vbavailable;
+		for (void *iter = json_object_iter(v); iter; (iter = json_object_iter_next(v, iter)), ++cur_vbassoc) {
+			v2 = json_object_iter_value(iter);
+			if (!json_is_number(v2)) {
+				return "Invalid type for vbavailable bit";
+			}
+			double bitnum = json_number_value(v2);
+			if (bitnum < 0 || bitnum > 28 || (unsigned)bitnum != bitnum) {
+				return "Invalid bit number in vbavailable";
+			}
+			*cur_vbassoc = malloc(sizeof(**cur_vbassoc));
+			if (!*cur_vbassoc) {
+				return "Memory allocation error for struct blktmpl_vbassoc";
+			}
+			**cur_vbassoc = (struct blktmpl_vbassoc){
+				.name = strdup(json_object_iter_key(iter)),
+				.bitnum = bitnum,
+			};
+			if (!(*cur_vbassoc)->name) {
+				return "Memory allocation error for vbavailable name";
+			}
+		}
+		
+		v = json_object_get(json, "vbrequired");
+		if (v && json_is_number(v)) {
+			double tmpd = json_number_value(v);
+			tmpl->vbrequired = tmpd;
+			if (tmpl->vbrequired != tmpd) {
+				return "Unparsable vbrequired";
+			}
+		}
+	}
+	else
+	if (tmpl->version > BLKMAKER_MAX_PRERULES_BLOCK_VERSION || (tmpl->version >= 2 && !tmpl->height))
+	{
+		if (tmpl->mutations & BMM_VERDROP)
+			tmpl->version = tmpl->height ? BLKMAKER_MAX_PRERULES_BLOCK_VERSION : 1;
+		else
+		if (!(tmpl->mutations & BMM_VERFORCE))
+			return "Unrecognized block version, and not allowed to reduce or force it";
+	}
+	
+	if ((v = json_object_get(json, "coinbasevalue")) && json_is_number(v)) {
+		const double tmpd = json_number_value(v);
+		const uint64_t tmp = tmpd;
+		if (tmpd == tmp) {
+			tmpl->has_cbvalue = true;
+			tmpl->cbvalue = tmp;
+		}
+	}
 	
 	GETSTR(workid, workid);
 	
-	GETNUM_O(expires);
-	GETNUM_O(maxtime);
-	GETNUM_O(maxtimeoff);
-	GETNUM_O(mintime);
-	GETNUM_O(mintimeoff);
+	GETNUM_OT(expires, int16_t);
+	GETNUM_OT(maxtime, blktime_t);
+	GETNUM_OT(maxtimeoff, blktime_diff_t);
+	GETNUM_OT(mintime, blktime_t);
+	GETNUM_OT(mintimeoff, blktime_diff_t);
 	
 	GETSTR(longpollid, lp.id);
 	GETSTR(longpolluri, lp.uri);
@@ -213,21 +440,45 @@ const char *blktmpl_add_jansson(blktemplate_t *tmpl, const json_t *json, time_t 
 	v = json_object_get(json, "transactions");
 	size_t txns = tmpl->txncount = json_array_size(v);
 	tmpl->txns = calloc(txns, sizeof(*tmpl->txns));
+	tmpl->txns_datasz = 0;
+	tmpl->txns_sigops = 0;
+	tmpl->txns_weight = 0;
 	for (size_t i = 0; i < txns; ++i)
-		if ((s = parse_txn(&tmpl->txns[i], json_array_get(v, i))))
+	{
+		struct blktxn_t * const txn = &tmpl->txns[i];
+		if ((s = parse_txn(txn, json_array_get(v, i), i + 1))) {
 			return s;
+		}
+		tmpl->txns_datasz += txn->datasz;
+		if (tmpl->txns_sigops == -1) {
+			;  // Impossible to tally the unknown
+		} else if (txn->sigops_ == -1) {
+			tmpl->txns_sigops = -1;
+		} else {
+			tmpl->txns_sigops += txn->sigops_;
+		}
+		if (tmpl->txns_weight == -1) {
+			;  // Impossible to tally the unknown
+		} else if (txn->weight == -1) {
+			tmpl->txns_weight = -1;
+		} else {
+			tmpl->txns_weight += txn->weight;
+		}
+	}
 	
 	if ((v = json_object_get(json, "coinbasetxn")) && json_is_object(v))
 	{
 		tmpl->cbtxn = calloc(1, sizeof(*tmpl->cbtxn));
-		if ((s = parse_txn(tmpl->cbtxn, v)))
+		if ((s = parse_txn(tmpl->cbtxn, v, 0)))
 			return s;
+	} else if (!tmpl->has_cbvalue) {
+		return "Missing either coinbasetxn or coinbasevalue";
 	}
 	
 	if ((v = json_object_get(json, "coinbaseaux")) && json_is_object(v))
 	{
 		tmpl->aux_count = json_object_size(v);
-		tmpl->auxs = malloc(tmpl->aux_count * sizeof(*tmpl->auxs));
+		tmpl->auxs = calloc(tmpl->aux_count, sizeof(*tmpl->auxs));
 		unsigned i = 0;
 		for (void *iter = json_object_iter(v); iter; (iter = json_object_iter_next(v, iter)), ++i)
 		{
@@ -241,7 +492,9 @@ const char *blktmpl_add_jansson(blktemplate_t *tmpl, const json_t *json, time_t 
 				.data = malloc(sz),
 				.datasz = sz,
 			};
-			my_hex2bin(tmpl->auxs[i].data, s, sz);
+			if (!my_hex2bin(tmpl->auxs[i].data, s, sz)) {
+				return "Error decoding 'coinbaseaux' data";
+			}
 		}
 	}
 	
@@ -250,26 +503,6 @@ const char *blktmpl_add_jansson(blktemplate_t *tmpl, const json_t *json, time_t 
 		tmpl->target = malloc(sizeof(*tmpl->target));
 		if (!my_hex2bin(tmpl->target, json_string_value(v), sizeof(*tmpl->target)))
 			return "Error decoding 'target'";
-	}
-	
-	if ((v = json_object_get(json, "mutable")) && json_is_array(v))
-	{
-		for (size_t i = json_array_size(v); i--; )
-		{
-			v2 = json_array_get(v, i);
-			if (!json_is_string(v2))
-				continue;
-			tmpl->mutations |= blktmpl_getcapability(json_string_value(v2));
-		}
-	}
-	
-	if (tmpl->version > BLKMAKER_MAX_BLOCK_VERSION || (tmpl->version >= 2 && !tmpl->height))
-	{
-		if (tmpl->mutations & BMM_VERDROP)
-			tmpl->version = tmpl->height ? BLKMAKER_MAX_BLOCK_VERSION : 1;
-		else
-		if (!(tmpl->mutations & BMM_VERFORCE))
-			return "Unrecognized block version, and not allowed to reduce or force it";
 	}
 	
 	tmpl->_time_rcvd = time_rcvd;
@@ -305,11 +538,12 @@ json_t *blktmpl_propose_jansson(blktemplate_t * const tmpl, const uint32_t caps,
 	uint8_t sdata[0x4c];
 	if (!blkmk_sample_data_(tmpl, sdata, dataid))
 		goto err;
-	char *blkhex = blkmk_assemble_submission_(tmpl, sdata, dataid, 0, foreign);
+	char *blkhex = blkmk_assemble_submission2_(tmpl, sdata, NULL, 0, dataid, 0, foreign);
 	if (!blkhex)
 		goto err;
 	if (!(ja = json_string(blkhex)))
 		goto err;
+	free(blkhex);
 	if (json_object_set_new(jparams, "data", ja))
 		goto err;
 	
@@ -322,8 +556,8 @@ err:
 }
 
 static
-json_t *_blkmk_submit_jansson(blktemplate_t *tmpl, const unsigned char *data, unsigned int dataid, blknonce_t nonce, bool foreign) {
-	char *blkhex = blkmk_assemble_submission_(tmpl, data, dataid, nonce, foreign);
+json_t *_blkmk_submit_jansson(blktemplate_t *tmpl, const unsigned char *data, const void * const extranonce, const size_t extranoncesz, unsigned int dataid, blknonce_t nonce, bool foreign) {
+	char *blkhex = blkmk_assemble_submission2_(tmpl, data, extranonce, extranoncesz, dataid, nonce, foreign);
 	if (!blkhex)
 		return NULL;
 	
@@ -372,9 +606,13 @@ err:
 }
 
 json_t *blkmk_submit_jansson(blktemplate_t *tmpl, const unsigned char *data, unsigned int dataid, blknonce_t nonce) {
-	return _blkmk_submit_jansson(tmpl, data, dataid, nonce, false);
+	return _blkmk_submit_jansson(tmpl, data, NULL, 0, dataid, nonce, false);
 }
 
 json_t *blkmk_submit_foreign_jansson(blktemplate_t *tmpl, const unsigned char *data, unsigned int dataid, blknonce_t nonce) {
-	return _blkmk_submit_jansson(tmpl, data, dataid, nonce, true);
+	return _blkmk_submit_jansson(tmpl, data, NULL, 0, dataid, nonce, true);
+}
+
+json_t *blkmk_submitm_jansson(blktemplate_t * const tmpl, const unsigned char *data, const void * const extranonce, const size_t extranoncesz, const blknonce_t nonce, const bool foreign) {
+	return _blkmk_submit_jansson(tmpl, data, extranonce, extranoncesz, 0, nonce, foreign);
 }
