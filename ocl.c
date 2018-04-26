@@ -273,7 +273,8 @@ int clDevicesNum(void) {
 	cl_uint numPlatforms;
 	cl_platform_id *platforms;
 	cl_platform_id platform = NULL;
-	unsigned int most_devices = 0, i, mdplatform = 0;
+    uint i, current_devices;
+    uint initial_platform = 0, most_devices = 0, most_devices_platform = 0;
 
 	status = clGetPlatformIDs(0, NULL, &numPlatforms);
 	/* If this fails, assume no GPUs. */
@@ -295,7 +296,11 @@ int clDevicesNum(void) {
 	}
 
     opencl_devnum = 0;
-	for (i = 0; i < numPlatforms; i++) {
+    if((opt_platform_id < numPlatforms) && (opt_platform_id >= 0)) {
+        initial_platform = opt_platform_id;
+        numPlatforms = opt_platform_id + 1;
+    }
+    for(i = initial_platform; i < numPlatforms; i++) {
 		status = clGetPlatformInfo( platforms[i], CL_PLATFORM_VENDOR, sizeof(pbuff), pbuff, NULL);
 		if (status != CL_SUCCESS) {
 			applog(LOG_ERR, "Error %d: Getting Platform Info. (clGetPlatformInfo)", status);
@@ -318,10 +323,11 @@ int clDevicesNum(void) {
 		}
         opencl_devnum += (uint)numDevices;
         applog(LOG_INFO, "Platform %u devices: %u", i, (uint)numDevices);
-		if (numDevices > most_devices) {
-			most_devices = numDevices;
-			mdplatform = i;
-		}
+        if(i == opt_platform_id) current_devices = numDevices;
+        if(numDevices > most_devices) {
+            most_devices = numDevices;
+            most_devices_platform = i;
+        }
 		if (numDevices) {
 			unsigned int j;
 			char pbuff[256];
@@ -336,10 +342,12 @@ int clDevicesNum(void) {
 		}
 	}
 
-	if (opt_platform_id < 0)
-		opt_platform_id = mdplatform;;
+    if((opt_platform_id >= numPlatforms) || (opt_platform_id < 0)) {
+        opt_platform_id = most_devices_platform;
+        current_devices = most_devices;
+    }
 
-	return most_devices;
+    return(current_devices);
 }
 
 static int advance(char **area, unsigned *remaining, const char *marker)
