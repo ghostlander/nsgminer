@@ -86,6 +86,7 @@ static	ADL_MAIN_CONTROL_CREATE		ADL_Main_Control_Create;
 static	ADL_MAIN_CONTROL_DESTROY	ADL_Main_Control_Destroy;
 static	ADL_ADAPTER_NUMBEROFADAPTERS_GET	ADL_Adapter_NumberOfAdapters_Get;
 static	ADL_ADAPTER_ADAPTERINFO_GET	ADL_Adapter_AdapterInfo_Get;
+static  ADL_ADAPTER_VIDEOBIOSINFO_GET  ADL_Adapter_VideoBiosInfo_Get;
 static	ADL_ADAPTER_ID_GET		ADL_Adapter_ID_Get;
 static	ADL_OVERDRIVE5_TEMPERATURE_GET	ADL_Overdrive5_Temperature_Get;
 static	ADL_OVERDRIVE5_CURRENTACTIVITY_GET	ADL_Overdrive5_CurrentActivity_Get;
@@ -159,6 +160,7 @@ static bool prepare_adl(void)
 	ADL_Main_Control_Destroy = (ADL_MAIN_CONTROL_DESTROY) GetProcAddress(hDLL,"ADL_Main_Control_Destroy");
 	ADL_Adapter_NumberOfAdapters_Get = (ADL_ADAPTER_NUMBEROFADAPTERS_GET) GetProcAddress(hDLL,"ADL_Adapter_NumberOfAdapters_Get");
 	ADL_Adapter_AdapterInfo_Get = (ADL_ADAPTER_ADAPTERINFO_GET) GetProcAddress(hDLL,"ADL_Adapter_AdapterInfo_Get");
+    ADL_Adapter_VideoBiosInfo_Get = (ADL_ADAPTER_VIDEOBIOSINFO_GET) GetProcAddress(hDLL, "ADL_Adapter_VideoBiosInfo_Get");
 	ADL_Adapter_ID_Get = (ADL_ADAPTER_ID_GET) GetProcAddress(hDLL,"ADL_Adapter_ID_Get");
 	ADL_Overdrive5_Temperature_Get = (ADL_OVERDRIVE5_TEMPERATURE_GET) GetProcAddress(hDLL,"ADL_Overdrive5_Temperature_Get");
 	ADL_Overdrive5_CurrentActivity_Get = (ADL_OVERDRIVE5_CURRENTACTIVITY_GET) GetProcAddress(hDLL, "ADL_Overdrive5_CurrentActivity_Get");
@@ -205,8 +207,9 @@ static bool prepare_adl(void)
 
 void init_adl(int nDevs)
 {
-	int result, i, j, devices = 0, last_adapter = -1, gpu = 0, dummy = 0;
-	struct gpu_adapters adapters[MAX_GPUDEVICES], vadapters[MAX_GPUDEVICES];
+    int result, i, j;
+    int devices = 0, last_adapter = -1, gpu = 0, dummy = 0;
+    struct gpu_adapters adl_adapters[MAX_GPUDEVICES], vadapters[MAX_GPUDEVICES];
 	bool devs_match = true;
 
 	if (unlikely(pthread_mutex_init(&adl_lock, NULL))) {
@@ -240,73 +243,53 @@ void init_adl(int nDevs)
 		return;
 	}
 
-	/* Iterate over iNumberAdapters and find the lpAdapterID of real devices */
-	for (i = 0; i < iNumberAdapters; i++) {
-		int iAdapterIndex;
-		int lpAdapterID;
+    applog(LOG_INFO, "Found %d logical ADL adapters", iNumberAdapters);
 
-		iAdapterIndex = lpInfo[i].iAdapterIndex;
-		/* Get unique identifier of the adapter, 0 means not AMD */
-		result = ADL_Adapter_ID_Get(iAdapterIndex, &lpAdapterID);
-		if (result != ADL_OK) {
-			applog(LOG_INFO, "Failed to ADL_Adapter_ID_Get. Error %d", result);
-			if (result == -10)
-				applog(LOG_INFO, "This error says the device is not enabled");
-		}
-		else
-		/* Each adapter may have multiple entries */
-		if (lpAdapterID == last_adapter)
-			continue;
-		else
-		if (!lpAdapterID)
-			applog(LOG_INFO, "Adapter returns ID 0 meaning not AMD. Card order might be confused");
-		else
-			last_adapter = lpAdapterID;
+    for(i = 0; i < iNumberAdapters; i++) {
+        int lpAdapterID;
 
-		applog(LOG_DEBUG, "GPU %d "
-		       "iAdapterIndex %d "
-		       "strUDID %s "
-		       "iBusNumber %d "
-		       "iDeviceNumber %d "
-		       "iFunctionNumber %d "
-		       "iVendorID %d "
-		       "strAdapterName  %s ",
-		       devices,
-		       iAdapterIndex,
-		       lpInfo[i].strUDID,
-		       lpInfo[i].iBusNumber,
-		       lpInfo[i].iDeviceNumber,
-		       lpInfo[i].iFunctionNumber,
-		       lpInfo[i].iVendorID,
-		       lpInfo[i].strAdapterName);
+        /* Non-AMD adapters have zero ID */
+        result = ADL_Adapter_ID_Get(lpInfo[i].iAdapterIndex, &lpAdapterID);
+        if(result != ADL_OK) {
+            applog(LOG_INFO, "ADL %d: error %d while getting adapter ID", i, result);
+            if(result == -10)
+              applog(LOG_INFO, "ADL %d: device disabled", i);
+            continue;
+        } else if(lpAdapterID == last_adapter) {
+            /* There may be multiple entries for the same adapter */
+            applog(LOG_INFO, "ADL %d: alias for the above", i);
+            continue;
+        } else if(!lpAdapterID) {
+            applog(LOG_INFO, "ADL %d: non-AMD", i);
+            continue;
+        }
 
-		adapters[devices].iAdapterIndex = iAdapterIndex;
-		adapters[devices].iBusNumber = lpInfo[i].iBusNumber;
-		adapters[devices].id = i;
+        applog(LOG_INFO, "ADL %d: %d:%d:%d '%s'",
+          i, lpInfo[i].iBusNumber, lpInfo[i].iDeviceNumber,
+          lpInfo[i].iFunctionNumber, lpInfo[i].strAdapterName);
 
-		/* We found a truly new adapter instead of a logical
-		 * one. Now since there's no way of correlating the
-		 * opencl enumerated devices and the ADL enumerated
-		 * ones, we have to assume they're in the same order.*/
-		if (++devices > nDevs && devs_match) {
-			applog(LOG_ERR, "ADL found more devices than opencl!");
-			applog(LOG_ERR, "There is possibly at least one GPU that doesn't support OpenCL");
-			applog(LOG_ERR, "Use the gpu map feature to reliably map OpenCL to ADL");
-			devs_match = false;
-		}
-	}
+        ADLBiosInfo biosInfo;
+        ADL_Adapter_VideoBiosInfo_Get(lpInfo[i].iAdapterIndex, &biosInfo);
+        applog(LOG_INFO, "ADL %d: BIOS %s %s %s",
+          i, biosInfo.strPartNumber, biosInfo.strVersion, biosInfo.strDate);
 
-	if (devices < nDevs) {
-		applog(LOG_ERR, "ADL found less devices than opencl!");
-		applog(LOG_ERR, "There is possibly more than one display attached to a GPU");
-		applog(LOG_ERR, "Use the gpu map feature to reliably map OpenCL to ADL");
-		devs_match = false;
-	}
+        last_adapter = lpAdapterID;
 
-	for (i = 0; i < devices; i++) {
-		vadapters[i].virtual_gpu = i;
-		vadapters[i].id = adapters[i].id;
-	}
+        adl_adapters[devices].iAdapterIndex = lpInfo[i].iAdapterIndex;
+        adl_adapters[devices].iBusNumber = lpInfo[i].iBusNumber;
+        adl_adapters[devices].id = i;
+
+        devices++;
+    }
+
+    applog(LOG_INFO, "Detected %d physical AMD ADL adapters", devices);
+
+    if(devices != nDevs) devs_match = false;
+
+    for(i = 0; i < devices; i++) {
+        vadapters[i].virtual_gpu = i;
+        vadapters[i].id = adl_adapters[i].id;
+    }
 
 	/* Apply manually provided OpenCL to ADL mapping, if any */
 	for (i = 0; i < nDevs; i++) {
@@ -317,9 +300,8 @@ void init_adl(int nDevs)
 			gpus[i].virtual_adl = i;
 	}
 
-	if (!devs_match) {
-		applog(LOG_ERR, "WARNING: Number of OpenCL and ADL devices did not match!");
-		applog(LOG_ERR, "Hardware monitoring may NOT match up with devices!");
+    if(!devs_match) {
+        applog(LOG_ERR, "WARNING: hardware monitoring may NOT match up with devices!");
 	} else if (opt_reorder) {
 		/* Windows has some kind of random ordering for bus number IDs and
 		 * ordering the GPUs according to ascending order fixes it. Linux
@@ -332,9 +314,9 @@ void init_adl(int nDevs)
 				if (i == j)
 					continue;
 #ifdef WIN32
-				if (adapters[j].iBusNumber < adapters[i].iBusNumber)
+                if(adl_adapters[j].iBusNumber < adl_adapters[i].iBusNumber)
 #else
-				if (adapters[j].iBusNumber > adapters[i].iBusNumber)
+                if(adl_adapters[j].iBusNumber > adl_adapters[i].iBusNumber)
 #endif
 					virtual_gpu++;
 			}
@@ -342,7 +324,7 @@ void init_adl(int nDevs)
 				applog(LOG_INFO, "Mapping device %d to GPU %d according to Bus Number order",
 				       i, virtual_gpu);
 				vadapters[virtual_gpu].virtual_gpu = i;
-				vadapters[virtual_gpu].id = adapters[i].id;
+                vadapters[virtual_gpu].id = adl_adapters[i].id;
 			}
 		}
 	}
