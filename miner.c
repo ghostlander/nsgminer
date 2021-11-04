@@ -2223,15 +2223,14 @@ hashrate_to_bufstr(char*buf, float hashrate, signed char unitin, enum h2bs_fmt f
 	
 	for (i = 0; i <= unit; ++i)
 		hashrate /= 1000;
-	// 100 but with tolerance for floating-point rounding, max "99.99" then "100.0"
-	if (hashrate >= 99.995 || unit < 2)
-		prec = 1;
-	else
-	// 10 but with tolerance for floating-point rounding, max "9.999" then "10.00"
-	if (hashrate >= 9.9995)
-		prec = 2;
-	else
-		prec = 3;
+
+    /* 0.000 */
+    prec = 3;
+    /* 00.00 */
+    if(hashrate >= 9.9995) prec = 2;
+    /* 000.0 */
+    if(hashrate >= 99.995) prec = 1;
+
 	ucp = (fmt == H2B_NOUNIT ? '\0' : buf[5]);
 	sprintf(buf, "%5.*f", prec, hashrate);
 	buf[5] = ucp;
