@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2017 John Doering <ghostlander@phoenixcoin.org>
+ * Copyright (c) 2014-2025 John Doering <ghostlander@phoenixcoin.org>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,7 +27,7 @@
 
 /* NeoScrypt(128, 2, 1) with Salsa20/20 and ChaCha20/20
  * Optimised for modern AMD and NVIDIA GPU architectures
- * v8a, 26-Dec-2017 */
+ * v8c, 16-Feb-2025 */
 
 
 #if (cl_amd_media_ops)
@@ -897,23 +897,16 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
                 G[k + 3] = XZ[3];
 
                 /* blkmix(X) */
-                XZ[0] ^= XZ[3];
                 if(i) {
-                    XZ[0] = neoscrypt_salsa(XZ[0]);
-                    XZ[1] ^= XZ[0];
-                    XZ[1] = neoscrypt_salsa(XZ[1]);
-                    XZ[2] ^= XZ[1];
-                    XZ[2] = neoscrypt_salsa(XZ[2]);
-                    XZ[3] ^= XZ[2];
-                    XZ[3] = neoscrypt_salsa(XZ[3]);
+                    XZ[0] = neoscrypt_salsa(XZ[0] ^ XZ[3]);
+                    XZ[1] = neoscrypt_salsa(XZ[1] ^ XZ[0]);
+                    XZ[2] = neoscrypt_salsa(XZ[2] ^ XZ[1]);
+                    XZ[3] = neoscrypt_salsa(XZ[3] ^ XZ[2]);
                 } else {
-                    XZ[0] = neoscrypt_chacha(XZ[0]);
-                    XZ[1] ^= XZ[0];
-                    XZ[1] = neoscrypt_chacha(XZ[1]);
-                    XZ[2] ^= XZ[1];
-                    XZ[2] = neoscrypt_chacha(XZ[2]);
-                    XZ[3] ^= XZ[2];
-                    XZ[3] = neoscrypt_chacha(XZ[3]);
+                    XZ[0] = neoscrypt_chacha(XZ[0] ^ XZ[3]);
+                    XZ[1] = neoscrypt_chacha(XZ[1] ^ XZ[0]);
+                    XZ[2] = neoscrypt_chacha(XZ[2] ^ XZ[1]);
+                    XZ[3] = neoscrypt_chacha(XZ[3] ^ XZ[2]);
                 }
                 neoscrypt_swap64(&XZ[2], &XZ[1]);
 
@@ -931,23 +924,16 @@ __kernel void search(__global const uint4 *restrict input, __global uint *restri
                 XZ[3] ^= G[k + 3];
 
                 /* blkmix(X) */
-                XZ[0] ^= XZ[3];
                 if(i) {
-                    XZ[0] = neoscrypt_salsa(XZ[0]);
-                    XZ[1] ^= XZ[0];
-                    XZ[1] = neoscrypt_salsa(XZ[1]);
-                    XZ[2] ^= XZ[1];
-                    XZ[2] = neoscrypt_salsa(XZ[2]);
-                    XZ[3] ^= XZ[2];
-                    XZ[3] = neoscrypt_salsa(XZ[3]);
+                    XZ[0] = neoscrypt_salsa(XZ[0] ^ XZ[3]);
+                    XZ[1] = neoscrypt_salsa(XZ[1] ^ XZ[0]);
+                    XZ[2] = neoscrypt_salsa(XZ[2] ^ XZ[1]);
+                    XZ[3] = neoscrypt_salsa(XZ[3] ^ XZ[2]);
                 } else {
-                    XZ[0] = neoscrypt_chacha(XZ[0]);
-                    XZ[1] ^= XZ[0];
-                    XZ[1] = neoscrypt_chacha(XZ[1]);
-                    XZ[2] ^= XZ[1];
-                    XZ[2] = neoscrypt_chacha(XZ[2]);
-                    XZ[3] ^= XZ[2];
-                    XZ[3] = neoscrypt_chacha(XZ[3]);
+                    XZ[0] = neoscrypt_chacha(XZ[0] ^ XZ[3]);
+                    XZ[1] = neoscrypt_chacha(XZ[1] ^ XZ[0]);
+                    XZ[2] = neoscrypt_chacha(XZ[2] ^ XZ[1]);
+                    XZ[3] = neoscrypt_chacha(XZ[3] ^ XZ[2]);
                 }
                 neoscrypt_swap64(&XZ[2], &XZ[1]);
 

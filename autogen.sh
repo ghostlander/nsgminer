@@ -4,13 +4,13 @@
 
 bs_dir="$(dirname "$0")"
 
-if test -z "$NOSUBMODULES" ; then
-	echo 'Getting submodules...'
-	(
-		cd "${bs_dir}"
-		git submodule update --init
-	)
-fi
+#if test -z "$NOSUBMODULES" ; then
+#	echo 'Getting submodules...'
+#	(
+#		cd "${bs_dir}"
+#		git submodule update --init
+#	)
+#fi
 
 echo 'Running autoreconf -ifv...'
 (
